@@ -1,1 +1,3 @@
-# MultiPoseNet
+# MultiPoseNet in tensorflow
+
+*work in progress*
