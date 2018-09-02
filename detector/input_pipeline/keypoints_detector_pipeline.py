@@ -146,8 +146,8 @@ class KeypointPipeline:
         return features, labels
 
     def augmentation(self, image, masks, boxes, keypoints):
-        image, masks, boxes, keypoints = random_rotation(image, masks, boxes, keypoints, max_angle=45)
-        image, masks, keypoints = self.randomly_crop_and_resize(image, masks, boxes, keypoints, probability=0.8)
+        image, masks, boxes, keypoints = random_rotation(image, masks, boxes, keypoints, max_angle=5)
+        image, masks, keypoints = self.randomly_crop_and_resize(image, masks, boxes, keypoints, probability=0.001)
         image = random_color_manipulations(image, probability=0.5, grayscale_probability=0.1)
         image = random_pixel_value_scale(image, probability=0.1, minval=0.9, maxval=1.1)
         image, masks, keypoints = random_flip_left_right(image, masks, keypoints)
@@ -198,7 +198,8 @@ class KeypointPipeline:
             valid_indicator = tf.logical_not(tf.reduce_any(coordinate_violations, axis=2))
             valid_indicator = tf.expand_dims(valid_indicator, 2)  # shape [num_persons, 17, 1]
             v *= tf.to_int32(valid_indicator)
-            keypoints = tf.concat([points, v], axis=2)
+            translation = tf.to_int32(tf.stack([ymin, xmin]) * scaler)
+            keypoints = tf.concat([points - translation, v], axis=2)
 
             return image, masks, keypoints
 
@@ -210,19 +211,26 @@ class KeypointPipeline:
                 method=tf.image.ResizeMethod.NEAREST_NEIGHBOR
             )
             return masks
-
+        
+        def rescale(keypoints):
+            height = tf.to_float(tf.shape(image)[0])
+            width = tf.to_float(tf.shape(image)[1])
+            scaler = tf.stack([tf.to_float(self.image_size)/height, tf.to_float(self.image_size)/width])
+            points, v = tf.split(keypoints, [2, 1], axis=2)
+            keypoints = tf.concat([tf.to_int32(tf.to_float(points) * scaler), v], axis=2)
+            return keypoints
+            
         do_it = tf.less(tf.random_uniform([]), probability)
         image, masks, keypoints = tf.cond(
             do_it,
             lambda: crop(image, masks, boxes, keypoints),
-            lambda: (image, resize(masks), keypoints)
+            lambda: (image, resize(masks), rescale(keypoints))
         )
 
         image = tf.image.resize_images(
             image, [self.image_size, self.image_size],
             method=RESIZE_METHOD
         )
-
         return image, masks, keypoints
 
 

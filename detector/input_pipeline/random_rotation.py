@@ -102,7 +102,7 @@ def random_rotation(image, masks, boxes, keypoints, max_angle=45):
 
         # rotate keypoints
         points, v = tf.split(keypoints, [2, 1], axis=2)
-        # they have shapes [num_persons, 18, 2] and [num_persons, 18, 1]
+        # they have shapes [num_persons, 17, 2] and [num_persons, 17, 1]
         num_persons = tf.shape(points)[0]
         points = tf.reshape(tf.to_float(points), [num_persons * 17, 2])
         points = tf.matmul(points - box_center, rotation_matrix) + box_center - center_translation
