@@ -18,7 +18,9 @@ def random_rotation(image, masks, boxes, keypoints, max_angle=45):
         masks: a float tensor with shape [mask_height, mask_width, 2].
         boxes: a float tensor with shape [num_remaining_boxes, 4],
             where num_remaining_boxes <= num_persons.
-        keypoints: a float tensor with shape [num_persons, 18, 3].
+        keypoints: a float tensor with shape [num_persons, 18, 3],
+            note that some keypoints might be out of the image, but
+            we will correct that after doing a random crop.
     """
     with tf.name_scope('random_rotation'):
 
@@ -58,7 +60,6 @@ def random_rotation(image, masks, boxes, keypoints, max_angle=45):
             maxval=tf.minimum(15.0*size_ratio, 1.5),
             dtype=tf.float32
         )
-        # we want to
 
         rotation = tf.stack([
             tf.cos(theta), tf.sin(theta),
@@ -119,9 +120,9 @@ def random_rotation(image, masks, boxes, keypoints, max_angle=45):
         image = tf.contrib.image.transform(image, transform, interpolation='BILINEAR')
 
         # find the center of rotation for the masks
-        mask_height = tf.to_float(tf.shape(masks)[0])
-        mask_width = tf.to_float(tf.shape(masks)[1])
-        scaler = tf.stack([mask_height/height, mask_width/width])
+        masks_height = tf.to_float(tf.shape(masks)[0])
+        masks_width = tf.to_float(tf.shape(masks)[1])
+        scaler = tf.stack([masks_height/height, masks_width/width])
 
         # rotate masks
         translate = box_center * scaler - tf.matmul(scaler * (box_center - center_translation), inverse_rotation_matrix)

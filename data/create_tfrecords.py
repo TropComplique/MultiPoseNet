@@ -17,7 +17,10 @@ from pycocotools.coco import COCO
 
 
 """
-The purpose of this script is to
+Just run:
+python create_tfrecords.py
+
+And don't forget set the right paths below.
 """
 
 # paths to downloaded data
@@ -72,10 +75,9 @@ def to_tf_example(image_path, annotations, coco):
     masks = get_masks(annotations, width, height, coco)
     masks = cv2.resize(masks, (masks_width, masks_height), cv2.INTER_LANCZOS4)
     masks = np.packbits(masks > 0)
-    # we use `ceil` because of the 'SAME' padding 
+    # we use `ceil` because of the 'SAME' padding
 
-    boxes = []
-    keypoints = []
+    boxes, keypoints = [], []
     for a in annotations:
 
         # do not add barely visible people
@@ -100,32 +102,30 @@ def to_tf_example(image_path, annotations, coco):
 
         if (ymin == ymax) or (xmin == xmax):
             continue
-        
+
         k = np.array(a['keypoints'], dtype='int64').reshape(17, 3)
         x, y, v = np.split(k, 3, axis=1)
         x = np.clip(x, 0, width - 1)
         y = np.clip(y, 0, height - 1)
         k = np.stack([y, x, v], axis=1)  # note the change (x, y) -> (y, x)
-        keypoints.append(k)
-  
+
         boxes.append((ymin, xmin, ymax, xmax))
+        keypoints.append(k)
 
     # every image must have boxes
     if len(boxes) < 1:
         return None
-    
-    if len(keypoints) > 0:
-        keypoints = np.stack(keypoints, axis=0).astype('int64')
-    else:
-        keypoints = np.empty((0, 17, 3), dtype='int64')
-        
+
+    boxes = np.array(boxes, dtype='float32')
+    keypoints = np.stack(keypoints, axis=0).astype('int64')
+
     num_persons = len(boxes)
     assert num_persons == len(keypoints)
 
     example = tf.train.Example(features=tf.train.Features(feature={
         'image': _bytes_feature(encoded_jpg),
         'num_persons': _int64_feature(num_persons),
-        'boxes': _float_list_feature(np.array(boxes, dtype='float32').reshape(-1)),
+        'boxes': _float_list_feature(boxes.reshape(-1)),
         'keypoints': _int64_list_feature(list(keypoints.reshape(-1))),
         'masks': _bytes_feature(masks.tostring()),
     }))
@@ -189,7 +189,7 @@ def convert(coco, image_dir, result_path, num_shards):
 
     shutil.rmtree(result_path, ignore_errors=True)
     os.mkdir(result_path)
-    
+
     # randomize image order
     random.shuffle(examples_list)
     num_examples = len(examples_list)

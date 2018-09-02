@@ -19,7 +19,7 @@ def get_heatmaps(
         unsigned int width, unsigned int height):
     """
     Arguments:
-        keypoints: a numpy int array with shape [num_persons, 17, 3].
+        keypoints: a numpy float array with shape [num_persons, 17, 3].
             It is in format (y, x, visibility),
             where coordinates `y, x` are in the ranges
             [0, height - 1] and [0, width - 1].
@@ -43,8 +43,7 @@ def get_heatmaps(
     for i in range(17):
 
         # take a particular body part
-        is_visible = keypoints[:, i, 2] > 0  # shape [num_persons]
-        body_part = keypoints[is_visible, i, :2].astype('float32')  # shape [num_visible, 2]
+        body_part = keypoints[keypoints[:, i, 2] > 0, i, :2].astype('float32')  # shape [num_visible, 2]
 
         if len(body_part) == 0:
             heatmaps.append(np.zeros((maps_height, maps_width), dtype='float32'))
@@ -78,15 +77,17 @@ def create_heatmap(
     cdef float theta = 4.6052  # -ln(0.01)
     cdef float delta = np.sqrt(theta * 2.0)
     cdef float distance, value
-    cdef int y, x, xmin, ymin, xmax, ymax
+    cdef int y, x, ymin, xmin, ymax, xmax
 
-    center_x = center_x * (float(width) - 1.0)
     center_y = center_y * (float(height) - 1.0)
+    center_x = center_x * (float(width) - 1.0)
 
-    xmin = int(max(0.0, center_x - delta * sigma))
+
     ymin = int(max(0.0, center_y - delta * sigma))
-    xmax = int(min(float(width), center_x + delta * sigma))
+    xmin = int(max(0.0, center_x - delta * sigma))
     ymax = int(min(float(height), center_y + delta * sigma))
+    xmax = int(min(float(width), center_x + delta * sigma))
+
 
     for y in range(ymin, ymax):
         for x in range(xmin, xmax):

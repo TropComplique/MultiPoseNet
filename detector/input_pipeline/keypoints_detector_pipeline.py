@@ -102,10 +102,10 @@ class KeypointPipeline:
         keypoints = tf.reshape(keypoints, [num_persons, 17, 3])
 
         # get size of masks, they are downsampled
-        height = tf.to_float(tf.shape(image)[0])
-        width = tf.to_float(tf.shape(image)[1])
-        mask_height = tf.to_int32(tf.ceil(height / DOWNSAMPLE))
-        mask_width = tf.to_int32(tf.ceil(width / DOWNSAMPLE))
+        image_height = tf.shape(image)[0]
+        image_width = tf.shape(image)[1]
+        masks_height = tf.to_int32(tf.ceil(image_height/DOWNSAMPLE))
+        masks_width = tf.to_int32(tf.ceil(image_width/DOWNSAMPLE))
         # (we use the 'SAME' padding in the networks)
 
         # get masks
@@ -113,25 +113,33 @@ class KeypointPipeline:
         # unpack bits (reverse np.packbits)
         b = tf.constant([128, 64, 32, 16, 8, 4, 2, 1], dtype=tf.uint8)
         masks = tf.reshape(tf.bitwise.bitwise_and(masks[:, None], b), [-1])
-        masks = masks[:(mask_height * mask_width * 2)]
+        masks = masks[:(masks_height * masks_width * 2)]
         masks = tf.cast(masks > 0, tf.uint8)
         loss_mask, segmentation_mask = tf.split(masks, num_or_size_splits=2, axis=0)
 
         # reshape to the initial form
-        loss_mask = tf.reshape(loss_mask, [mask_height, mask_width, 1])
-        segmentation_mask = tf.reshape(segmentation_mask, [mask_height, mask_width, 1])
+        loss_mask = tf.reshape(loss_mask, [masks_height, masks_width, 1])
+        segmentation_mask = tf.reshape(segmentation_mask, [masks_height, masks_width, 1])
         masks = tf.concat([loss_mask, segmentation_mask], axis=2)
-        masks = tf.to_float(masks)  # they have binary values
+        masks = tf.to_float(masks)  # it has binary values only
 
         if self.is_training:
             image, masks, keypoints = self.augmentation(image, masks, boxes, keypoints)
+            image_height, image_width = tf.shape(image)[0], tf.shape(image)[1]
 
         sigma = 1.0
-        height, width = tf.shape(image)[0], tf.shape(image)[1]
         heatmaps = tf.py_func(
             lambda k, w, h: get_heatmaps(k, DOWNSAMPLE, sigma, w, h),
-            [tf.to_float(keypoints), width, height], tf.float32, stateful=False
+            [tf.to_float(keypoints), image_width, image_height],
+            tf.float32, stateful=False
         )
+
+        if self.is_training:
+            heatmaps_height = math.ceil(self.image_size/DOWNSAMPLE)
+            heatmaps_width = math.ceil(self.image_size/DOWNSAMPLE)
+            heatmaps.set_shape([heatmaps_height, heatmaps_width, 17])
+        else:
+            heatmaps.set_shape([None, None, 17])
 
         features = {'images': image}
         labels = {'heatmaps': heatmaps, 'masks': masks}
@@ -142,19 +150,19 @@ class KeypointPipeline:
         image, masks, keypoints = self.randomly_crop_and_resize(image, masks, boxes, keypoints, probability=0.8)
         image = random_color_manipulations(image, probability=0.5, grayscale_probability=0.1)
         image = random_pixel_value_scale(image, probability=0.1, minval=0.9, maxval=1.1)
-        #image, masks, keypoints = random_flip_left_right(image, masks, keypoints)
+        image, masks, keypoints = random_flip_left_right(image, masks, keypoints)
         return image, masks, keypoints
 
     def randomly_crop_and_resize(self, image, masks, boxes, keypoints, probability=0.5):
 
         def crop(image, masks, boxes, keypoints):
 
-            original_height = tf.to_float(tf.shape(image)[0])
-            original_width = tf.to_float(tf.shape(image)[1])
-            
-            scaler = tf.stack([original_height, original_width, original_height, original_width])
+            height = tf.to_float(tf.shape(image)[0])
+            width = tf.to_float(tf.shape(image)[1])
+
+            scaler = tf.stack([height, width, height, width])
             boxes /= scaler
-            
+
             image, _, window, _ = random_crop(
                 image, boxes,
                 min_object_covered=0.5,
@@ -163,21 +171,22 @@ class KeypointPipeline:
                 overlap_threshold=0.3
             )
 
-            crop_height = math.ceil(self.image_size/DOWNSAMPLE)
-            crop_width = math.ceil(self.image_size/DOWNSAMPLE)
+            masks_height = math.ceil(self.image_size/DOWNSAMPLE)
+            masks_width = math.ceil(self.image_size/DOWNSAMPLE)
 
             masks = tf.image.crop_and_resize(
                 image=tf.expand_dims(masks, 0),
                 boxes=tf.expand_dims(window, 0),
                 box_ind=tf.constant([0], dtype=tf.int32),
-                crop_size=[crop_height, crop_width],
+                crop_size=[masks_height, masks_width],
                 method='nearest'
             )
             masks = masks[0]
+            # masks.set_shape([masks_height, masks_width, 2])
 
             # now remove keypoints that are outside of the window
             ymin, xmin, ymax, xmax = tf.unstack(window)
-            scaler = tf.stack([original_height - 1.0, original_width - 1.0])
+            scaler = tf.stack([height - 1.0, width - 1.0])
             points, v = tf.split(keypoints, [2, 1], axis=2)
             y, x = tf.unstack(tf.to_float(points)/scaler, axis=2)
             # they have shape [num_persons, 17]
@@ -186,8 +195,9 @@ class KeypointPipeline:
                 tf.greater_equal(y, ymax), tf.greater_equal(x, xmax),
                 tf.less_equal(y, ymin), tf.less_equal(x, xmin)
             ], axis=2)  # shape [num_persons, 17, 4]
-            valid_indicator = tf.logical_not(tf.reduce_any(coordinate_violations, 2))  # shape [num_persons, 17]
-            v = tf.to_int32(tf.to_float(v) * tf.to_float(tf.expand_dims(valid_indicator, 2)))
+            valid_indicator = tf.logical_not(tf.reduce_any(coordinate_violations, axis=2))
+            valid_indicator = tf.expand_dims(valid_indicator, 2)  # shape [num_persons, 17, 1]
+            v *= tf.to_int32(valid_indicator)
             keypoints = tf.concat([points, v], axis=2)
 
             return image, masks, keypoints
@@ -224,13 +234,13 @@ def random_flip_left_right(image, masks, keypoints):
 
         y, x, v = tf.unstack(keypoints, axis=2)
         width = tf.shape(image)[1]
-        flipped_x = tf.subtract(width, x)
+        flipped_x = tf.subtract(width - 1, x)
         flipped_keypoints = tf.stack([y, flipped_x, v], axis=2)
 
         """
         The keypoint order:
         """
-        correct_order = tf.constant([])
+        correct_order = tf.constant([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16])
         flipped_keypoints = tf.gather(flipped_keypoints, correct_order, axis=1)
 
         return flipped_image, flipped_masks, flipped_keypoints

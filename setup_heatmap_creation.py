@@ -4,9 +4,9 @@ import numpy
 
 
 """
-python setup_heatmap_creation.py build_ext --inplace
-rm build/ -rf
+Just run this:
+python setup_heatmap_creation.py build_ext --inplace; rm build/ -rf
 """
 
-
-setup(ext_modules=cythonize('detector/input_pipeline/heatmap_creation/main.pyx'), include_dirs=[numpy.get_include()])
+path_to_source_code = 'detector/input_pipeline/heatmap_creation/main.pyx'
+setup(ext_modules=cythonize(path_to_source_code), include_dirs=[numpy.get_include()])

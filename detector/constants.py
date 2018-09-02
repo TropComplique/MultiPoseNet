@@ -12,7 +12,7 @@ SCALE_FACTORS = [10.0, 10.0, 5.0, 5.0]
 # here are input pipeline settings.
 # you need to tweak these numbers for your system,
 # it can accelerate training
-SHUFFLE_BUFFER_SIZE = 15000
+SHUFFLE_BUFFER_SIZE = 10000
 NUM_THREADS = 12
 
 # images are resized before feeding them to the network
