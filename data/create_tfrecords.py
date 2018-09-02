@@ -9,6 +9,8 @@ import math
 import io
 from PIL import Image
 
+# you can get this from here:
+# https://github.com/cocodataset/cocoapi
 import sys
 sys.path.append('/home/dan/work/cocoapi/PythonAPI/')
 from pycocotools.coco import COCO
@@ -18,27 +20,31 @@ from pycocotools.coco import COCO
 The purpose of this script is to
 """
 
-
+# paths to downloaded data
 IMAGES_DIR = '/home/dan/datasets/COCO/images/'
 ANNOTATIONS_DIR = '/home/dan/datasets/COCO/annotations/'
 
+# path where converted data will be stored
 RESULT_PATH = '/home/dan/datasets/COCO/multiposenet/'
 
+# because dataset is big we will split it into parts
 NUM_TRAIN_SHARDS = 300
 NUM_VAL_SHARDS = 1
 
+# all masks are reduced in size
 DOWNSAMPLE = 4
 
+# we don't use poorly visible persons
 MIN_NUM_KEYPOINTS = 2
-MIN_BOX_SIDE = 48
+MIN_BOX_SIDE = 16
 
 
-def to_tf_example(image_path, masks, annotations):
+def to_tf_example(image_path, annotations, coco):
     """
     Arguments:
         image_path: a string.
-        masks: a numpy uint8 array with shape [image_height, image_width, 2].
         annotations: a list of dicts.
+        coco: an instance of COCO.
     Returns:
         an instance of tf.train.Example.
     """
@@ -61,30 +67,15 @@ def to_tf_example(image_path, masks, annotations):
     assert image.mode == 'RGB'
     assert width > 0 and height > 0
 
-    keypoints = []
-    for a in annotations:
-
-        if a['num_keypoints'] < MIN_NUM_KEYPOINTS:
-            continue
-
-        k = np.array(a['keypoints'], dtype='int64').reshape(17, 3)
-        x, y, v = np.split(k, 3, axis=1)
-        x = np.clip(x, 0, width - 1)
-        y = np.clip(y, 0, height - 1)
-        k = np.stack([y, x, v], axis=1)  # note the change (x, y) -> (y, x)
-        keypoints.append(k)
-
-    if len(keypoints) > 0:
-        keypoints = np.stack(keypoints, axis=0).astype('int64')
-    else:
-        keypoints = np.empty((0, 17, 3), dtype='int64')
-
     # downsample and encode masks
     masks_width, masks_height = math.ceil(width/DOWNSAMPLE), math.ceil(height/DOWNSAMPLE)
-    masks = cv2.resize(masks, (maps_width, maps_height), cv2.INTER_LANCZOS4)
+    masks = get_masks(annotations, width, height, coco)
+    masks = cv2.resize(masks, (masks_width, masks_height), cv2.INTER_LANCZOS4)
     masks = np.packbits(masks > 0)
+    # we use `ceil` because of the 'SAME' padding 
 
     boxes = []
+    keypoints = []
     for a in annotations:
 
         # do not add barely visible people
@@ -109,13 +100,25 @@ def to_tf_example(image_path, masks, annotations):
 
         if (ymin == ymax) or (xmin == xmax):
             continue
-
+        
+        k = np.array(a['keypoints'], dtype='int64').reshape(17, 3)
+        x, y, v = np.split(k, 3, axis=1)
+        x = np.clip(x, 0, width - 1)
+        y = np.clip(y, 0, height - 1)
+        k = np.stack([y, x, v], axis=1)  # note the change (x, y) -> (y, x)
+        keypoints.append(k)
+  
         boxes.append((ymin, xmin, ymax, xmax))
 
     # every image must have boxes
     if len(boxes) < 1:
         return None
-
+    
+    if len(keypoints) > 0:
+        keypoints = np.stack(keypoints, axis=0).astype('int64')
+    else:
+        keypoints = np.empty((0, 17, 3), dtype='int64')
+        
     num_persons = len(boxes)
     assert num_persons == len(keypoints)
 
@@ -154,11 +157,11 @@ def to_jpeg_bytes(array):
 
 def get_masks(annotations, width, height, coco):
 
-    # whether to use for computing the loss
+    # whether to use a pixel for computing the loss
     loss_mask = np.ones((height, width), dtype='bool')
 
     for a in annotations:
-        if a['num_keypoints'] > 0:
+        if a['num_keypoints'] >= MIN_NUM_KEYPOINTS:
             continue
         unannotated_person_mask = coco.annToMask(a)
         use_this = unannotated_person_mask == 0
@@ -178,27 +181,21 @@ def get_masks(annotations, width, height, coco):
     return masks
 
 
-DATA_TYPE = 'train2017'
-# DATA_TYPE = 'val2017'
-coco = COCO(os.path.join(ANNOTATIONS_DIR, 'person_keypoints_{}.json'.format(DATA_TYPE)))
-RESULT_PATH = '/home/dan/datasets/COCO/keypoints_shards_train/'
-# RESULT_PATH = '/home/dan/datasets/COCO/keypoints_shards_val/'
-
-def convert():
+def convert(coco, image_dir, result_path, num_shards):
 
     # get all images with people
     catIds = coco.getCatIds(catNms=['person'])
-    imgIds = coco.getImgIds(catIds=catIds)
+    examples_list = coco.getImgIds(catIds=catIds)
 
-    shutil.rmtree(RESULT_PATH, ignore_errors=True)
-    os.mkdir(RESULT_PATH)
-
-    examples_list = imgIds
+    shutil.rmtree(result_path, ignore_errors=True)
+    os.mkdir(result_path)
+    
+    # randomize image order
     random.shuffle(examples_list)
     num_examples = len(examples_list)
     print('Number of images:', num_examples)
 
-    shard_size = math.ceil(num_examples/NUM_SHARDS)
+    shard_size = math.ceil(num_examples/num_shards)
     print('Number of images per shard:', shard_size)
 
     shard_id = 0
@@ -207,15 +204,15 @@ def convert():
     for example in tqdm(examples_list):
 
         if num_examples_written == 0:
-            shard_path = os.path.join(RESULT_PATH, 'shard-%04d.tfrecords' % shard_id)
+            shard_path = os.path.join(result_path, 'shard-%04d.tfrecords' % shard_id)
             writer = tf.python_io.TFRecordWriter(shard_path)
 
         image_metadata = coco.loadImgs(example)[0]
-        image_path = os.path.join(IMAGES_DIR, DATA_TYPE, image_metadata['file_name'])
+        image_path = os.path.join(image_dir, image_metadata['file_name'])
         annIds = coco.getAnnIds(imgIds=image_metadata['id'], catIds=catIds)
         annotations = coco.loadAnns(annIds)
 
-        tf_example = to_tf_example(image_path, annotations)
+        tf_example = to_tf_example(image_path, annotations, coco)
         if tf_example is None:
             num_skipped_images += 1
             continue
@@ -231,7 +228,18 @@ def convert():
         writer.close()
 
     print('Number of skipped images:', num_skipped_images)
-    print('Result is here:', RESULT_PATH)
+    print('Result is here:', result_path, '\n')
 
 
-convert()
+shutil.rmtree(RESULT_PATH, ignore_errors=True)
+os.mkdir(RESULT_PATH)
+
+coco = COCO(os.path.join(ANNOTATIONS_DIR, 'person_keypoints_train2017.json'))
+image_dir = os.path.join(IMAGES_DIR, 'train2017')
+result_path = os.path.join(RESULT_PATH, 'train')
+convert(coco, image_dir, result_path, NUM_TRAIN_SHARDS)
+
+coco = COCO(os.path.join(ANNOTATIONS_DIR, 'person_keypoints_val2017.json'))
+image_dir = os.path.join(IMAGES_DIR, 'val2017')
+result_path = os.path.join(RESULT_PATH, 'val')
+convert(coco, image_dir, result_path, NUM_VAL_SHARDS)

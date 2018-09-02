@@ -9,4 +9,4 @@ rm build/ -rf
 """
 
 
-setup(ext_modules=cythonize('heatmap_creation/main.pyx'), include_dirs=[numpy.get_include()])
+setup(ext_modules=cythonize('detector/input_pipeline/heatmap_creation/main.pyx'), include_dirs=[numpy.get_include()])

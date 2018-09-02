@@ -1,7 +1,7 @@
 import tensorflow as tf
 
-from code.utils import intersection, area
-from code.constants import EPSILON
+from detector.utils import intersection, area
+from detector.constants import EPSILON
 
 
 def random_crop(

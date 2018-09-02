@@ -32,12 +32,12 @@ def get_heatmaps(
         where (maps_height, maps_width) = (height/downsample, width/downsample).
     """
 
-    cdef float width = float(width)
-    cdef float height = float(height)
-    cdef unsigned int maps_width = math.ceil(width/float(downsample))
-    cdef unsigned int maps_height = math.ceil(height/float(downsample))
-    cdef np.ndarray[float, ndim=1] body_part
-    cdef np.ndarray[float, ndim=1] scaler = np.array([height - 1.0, width - 1.0], dtype='float32')
+    cdef float w = float(width)
+    cdef float h = float(height)
+    cdef unsigned int maps_width = int(np.ceil(w/float(downsample)))
+    cdef unsigned int maps_height = int(np.ceil(h/float(downsample)))
+    cdef np.ndarray[float, ndim=2] body_part
+    cdef np.ndarray[float, ndim=1] scaler = np.array([h - 1.0, w - 1.0], dtype='float32')
 
     heatmaps = []
     for i in range(17):

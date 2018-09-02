@@ -1,8 +1,8 @@
 import tensorflow as tf
 
-from code.input_pipeline.random_crop import random_crop
-from code.input_pipeline.color_augmentations import random_color_manipulations, random_pixel_value_scale
-from code.constants import SHUFFLE_BUFFER_SIZE, NUM_THREADS, RESIZE_METHOD
+from detector.input_pipeline.random_crop import random_crop
+from detector.input_pipeline.color_augmentations import random_color_manipulations, random_pixel_value_scale
+from detector.constants import SHUFFLE_BUFFER_SIZE, NUM_THREADS, RESIZE_METHOD
 
 
 """Input pipeline for training or evaluating object detectors."""
@@ -104,19 +104,19 @@ class DetectorPipeline:
         return features, labels
 
     def augmentation(self, image, boxes):
-        image, boxes = self.randomly_crop_and_resize(image, boxes)
+        image, boxes = self.randomly_crop_and_resize(image, boxes, probability=0.9)
         image = random_color_manipulations(image, probability=0.5, grayscale_probability=0.1)
-        image = random_pixel_value_scale(image, probability=0.1, minval=0.9, maxval=1.1)
-        boxes = random_jitter_boxes(boxes, ratio=0.01)
+        image = random_pixel_value_scale(image, probability=0.1, minval=0.8, maxval=1.2)
+        boxes = random_jitter_boxes(boxes, ratio=0.03)
         image, boxes = random_flip_left_right(image, boxes)
         return image, boxes
 
-    def randomly_crop_and_resize(self, image, boxes):
+    def randomly_crop_and_resize(self, image, boxes, probability=0.9):
 
         def crop(image, boxes):
             image, boxes, _, _ = random_crop(
                 image, boxes,
-                min_object_covered=0.5,
+                min_object_covered=0.75,
                 aspect_ratio_range=(0.9, 1.1),
                 area_range=(0.25, 1.0),
                 overlap_threshold=0.3

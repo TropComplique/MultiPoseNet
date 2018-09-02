@@ -1,10 +1,11 @@
 import tensorflow as tf
+import math
 
-from code.input_pipeline.random_crop import random_crop
-from code.input_pipeline.random_rotation import random_rotation
-from code.input_pipeline.color_augmentations import random_color_manipulations, random_pixel_value_scale
-from code.constants import SHUFFLE_BUFFER_SIZE, NUM_THREADS, RESIZE_METHOD, DOWNSAMPLE
-from heatmap_creation import get_heatmaps
+from detector.input_pipeline.random_crop import random_crop
+from detector.input_pipeline.random_rotation import random_rotation
+from detector.input_pipeline.color_augmentations import random_color_manipulations, random_pixel_value_scale
+from detector.constants import SHUFFLE_BUFFER_SIZE, NUM_THREADS, RESIZE_METHOD, DOWNSAMPLE
+from detector.input_pipeline.heatmap_creation import get_heatmaps
 
 
 """Input pipeline for training or evaluating networks for heatmap regression."""
@@ -129,7 +130,7 @@ class KeypointPipeline:
         height, width = tf.shape(image)[0], tf.shape(image)[1]
         heatmaps = tf.py_func(
             lambda k, w, h: get_heatmaps(k, DOWNSAMPLE, sigma, w, h),
-            [keypoints, width, height], tf.float32, stateful=False
+            [tf.to_float(keypoints), width, height], tf.float32, stateful=False
         )
 
         features = {'images': image}
@@ -138,19 +139,22 @@ class KeypointPipeline:
 
     def augmentation(self, image, masks, boxes, keypoints):
         image, masks, boxes, keypoints = random_rotation(image, masks, boxes, keypoints, max_angle=45)
-        image, masks, keypoints = self.randomly_crop_and_resize(image, masks, boxes, keypoints)
+        image, masks, keypoints = self.randomly_crop_and_resize(image, masks, boxes, keypoints, probability=0.8)
         image = random_color_manipulations(image, probability=0.5, grayscale_probability=0.1)
         image = random_pixel_value_scale(image, probability=0.1, minval=0.9, maxval=1.1)
-        image, masks, keypoints = random_flip_left_right(image, masks, keypoints)
+        #image, masks, keypoints = random_flip_left_right(image, masks, keypoints)
         return image, masks, keypoints
 
-    def randomly_crop_and_resize(self, image, masks, boxes, keypoints):
+    def randomly_crop_and_resize(self, image, masks, boxes, keypoints, probability=0.5):
 
         def crop(image, masks, boxes, keypoints):
 
-            original_height = tf.shape(image)[0]
-            original_width = tf.shape(image)[1]
-
+            original_height = tf.to_float(tf.shape(image)[0])
+            original_width = tf.to_float(tf.shape(image)[1])
+            
+            scaler = tf.stack([original_height, original_width, original_height, original_width])
+            boxes /= scaler
+            
             image, _, window, _ = random_crop(
                 image, boxes,
                 min_object_covered=0.5,
@@ -169,20 +173,22 @@ class KeypointPipeline:
                 crop_size=[crop_height, crop_width],
                 method='nearest'
             )
+            masks = masks[0]
 
             # now remove keypoints that are outside of the window
             ymin, xmin, ymax, xmax = tf.unstack(window)
-            scaler = tf.stack([original_height - 1.0, original_width - 1.0, 1.0])
-            y, x, v = tf.unstack(keypoints/scaler, axis=2)
+            scaler = tf.stack([original_height - 1.0, original_width - 1.0])
+            points, v = tf.split(keypoints, [2, 1], axis=2)
+            y, x = tf.unstack(tf.to_float(points)/scaler, axis=2)
             # they have shape [num_persons, 17]
 
-            coordinate_violations = tf.concat([
+            coordinate_violations = tf.stack([
                 tf.greater_equal(y, ymax), tf.greater_equal(x, xmax),
                 tf.less_equal(y, ymin), tf.less_equal(x, xmin)
             ], axis=2)  # shape [num_persons, 17, 4]
             valid_indicator = tf.logical_not(tf.reduce_any(coordinate_violations, 2))  # shape [num_persons, 17]
-            v = tf.to_int32(v * tf.to_float(valid_indicator))
-            keypoints = tf.stack([y, x, v], axis=2)
+            v = tf.to_int32(tf.to_float(v) * tf.to_float(tf.expand_dims(valid_indicator, 2)))
+            keypoints = tf.concat([points, v], axis=2)
 
             return image, masks, keypoints
 

@@ -1,5 +1,5 @@
 import tensorflow as tf
-from code.constants import PARALLEL_ITERATIONS
+from detector.constants import PARALLEL_ITERATIONS
 
 
 def batch_non_max_suppression(
