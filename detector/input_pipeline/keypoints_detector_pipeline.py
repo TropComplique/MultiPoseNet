@@ -108,19 +108,16 @@ class KeypointPipeline:
         masks_width = tf.to_int32(tf.ceil(image_width/DOWNSAMPLE))
         # (we use the 'SAME' padding in the networks)
 
-        # get masks
+        # get masks (loss and segmentation masks)
         masks = tf.decode_raw(parsed_features['masks'], tf.uint8)
         # unpack bits (reverse np.packbits)
         b = tf.constant([128, 64, 32, 16, 8, 4, 2, 1], dtype=tf.uint8)
         masks = tf.reshape(tf.bitwise.bitwise_and(masks[:, None], b), [-1])
         masks = masks[:(masks_height * masks_width * 2)]
         masks = tf.cast(masks > 0, tf.uint8)
-        loss_mask, segmentation_mask = tf.split(masks, num_or_size_splits=2, axis=0)
 
         # reshape to the initial form
-        loss_mask = tf.reshape(loss_mask, [masks_height, masks_width, 1])
-        segmentation_mask = tf.reshape(segmentation_mask, [masks_height, masks_width, 1])
-        masks = tf.concat([loss_mask, segmentation_mask], axis=2)
+        masks = tf.reshape(masks, [masks_height, masks_width, 2])
         masks = tf.to_float(masks)  # it has binary values only
 
         if self.is_training:
@@ -147,7 +144,7 @@ class KeypointPipeline:
 
     def augmentation(self, image, masks, boxes, keypoints):
         image, masks, boxes, keypoints = random_rotation(image, masks, boxes, keypoints, max_angle=45)
-        image, masks, keypoints = self.randomly_crop_and_resize(image, masks, boxes, keypoints, probability=0.9)
+        image, masks, keypoints = self.randomly_crop_and_resize(image, masks, boxes, keypoints, probability=0.00009)
         image = random_color_manipulations(image, probability=0.5, grayscale_probability=0.1)
         image = random_pixel_value_scale(image, probability=0.1, minval=0.9, maxval=1.1)
         image, masks, keypoints = random_flip_left_right(image, masks, keypoints)
@@ -163,8 +160,8 @@ class KeypointPipeline:
         def crop(image, boxes):
             image, _, window, _ = random_crop(
                 image, boxes,
-                min_object_covered=0.5,
-                aspect_ratio_range=(0.9, 1.1),
+                min_object_covered=0.9,
+                aspect_ratio_range=(0.95, 1.05),
                 area_range=(0.25, 1.0),
                 overlap_threshold=0.3
             )
@@ -213,13 +210,13 @@ class KeypointPipeline:
         v *= tf.to_int32(valid_indicator)
 
         translation = tf.stack([ymin, xmin])  # translate coordinate system
-        scaler = tf.stack([tf.to_float(self.image_size)/height, tf.to_float(self.image_size)/width])
+        scaler = tf.stack([tf.to_float(self.image_size)/(ymax - ymin), tf.to_float(self.image_size)/(xmax - xmin)])
 
         points = tf.to_int32(tf.round(scaler * (points - translation)))
         y, x = tf.unstack(points, axis=2)
         y = tf.clip_by_value(y, 0, self.image_size - 1)
         x = tf.clip_by_value(x, 0, self.image_size - 1)
-        keypoints = tf.concat([tf.stack([y, x]), v], axis=2)
+        keypoints = tf.concat([tf.stack([y, x], axis=2), v], axis=2)
 
         return image, masks, keypoints
 
@@ -237,8 +234,17 @@ def random_flip_left_right(image, masks, keypoints):
 
         """
         The keypoint order:
+        0: 'nose', 
+        1: 'left eye', 2: 'right eye', 
+        3: 'left ear', 4: 'right ear',
+        5: 'left shoulder', 6: 'right shoulder', 
+        7: 'left elbow', 8: 'right elbow',
+        9: 'left wrist', 10: 'right wrist',
+        11: 'left hip', 12: 'right hip',
+        13: 'left knee', 14: 'right knee',
+        15: 'left ankle', 16: 'right ankle'
         """
-        correct_order = tf.constant([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16])
+        correct_order = tf.constant([0, 2, 1, 4, 3, 6, 5, 8, 7, 10, 9, 12, 11, 14, 13, 16, 15])
         flipped_keypoints = tf.gather(flipped_keypoints, correct_order, axis=1)
 
         return flipped_image, flipped_masks, flipped_keypoints

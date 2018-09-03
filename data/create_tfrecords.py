@@ -92,10 +92,10 @@ def to_tf_example(image_path, annotations, coco):
             continue
 
         # clip
-        ymin = np.clip(float(ymin), 0.0,  float(height))
-        xmin = np.clip(float(xmin), 0.0,  float(width))
-        ymax = np.clip(float(ymax), 0.0,  float(height))
-        xmax = np.clip(float(xmax), 0.0,  float(width))
+        ymin = np.clip(float(ymin), 0.0, float(height))
+        xmin = np.clip(float(xmin), 0.0, float(width))
+        ymax = np.clip(float(ymax), 0.0, float(height))
+        xmax = np.clip(float(xmax), 0.0, float(width))
 
         ymin, ymax = min(ymin, ymax), max(ymin, ymax)
         xmin, xmax = min(xmin, xmax), max(xmin, xmax)
