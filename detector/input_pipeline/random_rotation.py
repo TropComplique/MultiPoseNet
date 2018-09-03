@@ -1,6 +1,8 @@
 import tensorflow as tf
 import math
 
+from detector.constants import DOWNSAMPLE
+
 
 def random_rotation(image, masks, boxes, keypoints, max_angle=45):
     """
@@ -9,16 +11,17 @@ def random_rotation(image, masks, boxes, keypoints, max_angle=45):
 
     Arguments:
         image: a float tensor with shape [height, width, 3].
-        masks: a float tensor with shape [mask_height, mask_width, 2].
+        masks: a float tensor with shape [mask_height, mask_width, 2],
+            they are smaller than the image in DOWNSAMPLE times.
         boxes: a float tensor with shape [num_persons, 4].
-        keypoints: a float tensor with shape [num_persons, 18, 3].
+        keypoints: an int tensor with shape [num_persons, 18, 3].
         max_angle: an integer.
     Returns:
         image: a float tensor with shape [height, width, 3].
         masks: a float tensor with shape [mask_height, mask_width, 2].
         boxes: a float tensor with shape [num_remaining_boxes, 4],
             where num_remaining_boxes <= num_persons.
-        keypoints: a float tensor with shape [num_persons, 18, 3],
+        keypoints: an int tensor with shape [num_persons, 18, 3],
             note that some keypoints might be out of the image, but
             we will correct that after doing a random crop.
     """
@@ -32,9 +35,9 @@ def random_rotation(image, masks, boxes, keypoints, max_angle=45):
         )
 
         # find the center of the image
-        height = tf.to_float(tf.shape(image)[0])
-        width = tf.to_float(tf.shape(image)[1])
-        image_center = tf.reshape(0.5*tf.stack([height, width]), [1, 2])
+        image_height = tf.to_float(tf.shape(image)[0])
+        image_width = tf.to_float(tf.shape(image)[1])
+        image_center = tf.reshape(0.5*tf.stack([image_height, image_width]), [1, 2])
 
         # get a random bounding box
         box = tf.random_shuffle(boxes)[0]
@@ -46,20 +49,22 @@ def random_rotation(image, masks, boxes, keypoints, max_angle=45):
 
         # we will rotate around the box's center,
         # but the center mustn't be too near to the border of the image:
-        cy = tf.clip_by_value(cy, 0.15*height, 0.85*height)
-        cx = tf.clip_by_value(cx, 0.15*width, 0.85*width)
+        cy = tf.clip_by_value(cy, 0.2*image_height, 0.8*image_height)
+        cx = tf.clip_by_value(cx, 0.2*image_width, 0.8*image_width)
         box_center = tf.reshape(tf.stack([cy, cx]), [1, 2])
 
         # this changes the center of the image
         center_translation = box_center - image_center
 
         # get a random image scaler
-        size_ratio = box_width/width
+        size_ratio = box_width/image_width
         scale = tf.random_uniform(
-            [], minval=tf.minimum(5.0*size_ratio, 0.5),
-            maxval=tf.minimum(15.0*size_ratio, 1.5),
+            [], minval=tf.minimum(2.0*size_ratio, 0.5),
+            maxval=tf.minimum(8.0*size_ratio, 1.5),
             dtype=tf.float32
         )
+        # after this scaling new box's `width` will be `s * width`
+        # where `s` in the range [max(0.666, (1/8)*image_width/width), max(2, (1/2)*image_width/width)]
 
         rotation = tf.stack([
             tf.cos(theta), tf.sin(theta),
@@ -89,10 +94,10 @@ def random_rotation(image, masks, boxes, keypoints, max_angle=45):
         ymax = tf.maximum(p3[:, 0], p4[:, 0])
         xmin = tf.minimum(p1[:, 1], p3[:, 1])
         xmax = tf.maximum(p2[:, 1], p4[:, 1])
-        ymin = tf.clip_by_value(ymin, 0.0, height)
-        xmin = tf.clip_by_value(xmin, 0.0, width)
-        ymax = tf.clip_by_value(ymax, 0.0, height)
-        xmax = tf.clip_by_value(xmax, 0.0, width)
+        ymin = tf.clip_by_value(ymin, 0.0, image_height)
+        xmin = tf.clip_by_value(xmin, 0.0, image_width)
+        ymax = tf.clip_by_value(ymax, 0.0, image_height)
+        xmax = tf.clip_by_value(xmax, 0.0, image_width)
 
         # in the case if some boxes went over the border
         area = (xmax - xmin) * (ymax - ymin)
@@ -119,10 +124,8 @@ def random_rotation(image, masks, boxes, keypoints, max_angle=45):
         ])
         image = tf.contrib.image.transform(image, transform, interpolation='BILINEAR')
 
-        # find the center of rotation for the masks
-        masks_height = tf.to_float(tf.shape(masks)[0])
-        masks_width = tf.to_float(tf.shape(masks)[1])
-        scaler = tf.stack([masks_height/height, masks_width/width])
+        # masks are smaller than the image
+        scaler = tf.to_float(tf.stack([1.0/DOWNSAMPLE, 1.0/DOWNSAMPLE]))
 
         # rotate masks
         translate = box_center * scaler - tf.matmul(scaler * (box_center - center_translation), inverse_rotation_matrix)
