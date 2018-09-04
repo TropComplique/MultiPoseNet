@@ -23,6 +23,7 @@ python create_tfrecords.py
 And don't forget set the right paths below.
 """
 
+
 # paths to downloaded data
 IMAGES_DIR = '/home/dan/datasets/COCO/images/'
 ANNOTATIONS_DIR = '/home/dan/datasets/COCO/annotations/'
@@ -56,8 +57,7 @@ def to_tf_example(image_path, annotations, coco):
         encoded_jpg = f.read()
 
     # check image format
-    encoded_jpg_io = io.BytesIO(encoded_jpg)
-    image = Image.open(encoded_jpg_io)
+    image = Image.open(io.BytesIO(encoded_jpg))
     if not image.format == 'JPEG':
         return None
 
@@ -65,69 +65,78 @@ def to_tf_example(image_path, annotations, coco):
     if image.mode == 'L':  # if grayscale
         rgb_image = np.stack(3*[np.array(image)], axis=2)
         encoded_jpg = to_jpeg_bytes(rgb_image)
-        encoded_jpg_io = io.BytesIO(encoded_jpg)
-        image = Image.open(encoded_jpg_io)
+        image = Image.open(io.BytesIO(encoded_jpg))
     assert image.mode == 'RGB'
     assert width > 0 and height > 0
 
-    # downsample and encode masks
-    masks_width, masks_height = math.ceil(width/DOWNSAMPLE), math.ceil(height/DOWNSAMPLE)
-    masks = get_masks(annotations, width, height, coco)
-    masks = cv2.resize(masks, (masks_width, masks_height), cv2.INTER_LANCZOS4)
-    masks = np.packbits(masks > 0)
-    # we use `ceil` because of the 'SAME' padding
+    # whether to use a pixel for computing the loss
+    loss_mask = np.ones((height, width), dtype='bool')
+
+    # whether there is a person on a pixel
+    segmentation_mask = np.zeros((height, width), dtype='bool')
 
     boxes, keypoints = [], []
     for a in annotations:
 
-        # do not add barely visible people
-        if a['num_keypoints'] < MIN_NUM_KEYPOINTS:
-            continue
-
         xmin, ymin, w, h = a['bbox']
         xmax, ymax = xmin + w, ymin + h
 
-        # do not add small boxes
-        if w < MIN_BOX_SIDE or h < MIN_BOX_SIDE:
-            continue
-
-        # clip
-        ymin = np.clip(float(ymin), 0.0, float(height))
-        xmin = np.clip(float(xmin), 0.0, float(width))
-        ymax = np.clip(float(ymax), 0.0, float(height))
-        xmax = np.clip(float(xmax), 0.0, float(width))
+        # sometimes boxes go over the edges
+        ymin = np.clip(ymin, 0.0, height)
+        xmin = np.clip(xmin, 0.0, width)
+        ymax = np.clip(ymax, 0.0, height)
+        xmax = np.clip(xmax, 0.0, width)
 
         ymin, ymax = min(ymin, ymax), max(ymin, ymax)
         xmin, xmax = min(xmin, xmax), max(xmin, xmax)
 
-        if (ymin == ymax) or (xmin == xmax):
+        h, w = ymax - ymin, xmax - xmin
+
+        # do not add barely visible people,
+        # do not add small boxes
+        is_bad = (a['num_keypoints'] < MIN_NUM_KEYPOINTS) or\
+            (h < MIN_BOX_SIDE) or (w < MIN_BOX_SIDE)
+
+        if is_bad:
+            unannotated_person_mask = coco.annToMask(a)
+            use_this = unannotated_person_mask == 0
+            loss_mask = np.logical_and(use_this, loss_mask)
             continue
 
-        k = np.array(a['keypoints'], dtype='int64').reshape(17, 3)
-        x, y, v = np.split(k, 3, axis=1)
+        person_mask = coco.annToMask(a)
+        segmentation_mask = np.logical_or(person_mask == 1, segmentation_mask)
+
+        points = np.array(a['keypoints'], dtype='int64').reshape(17, 3)
+        x, y, v = np.split(points, 3, axis=1)
         x = np.clip(x, 0, width - 1)
         y = np.clip(y, 0, height - 1)
-        k = np.stack([y, x, v], axis=1)  # note the change (x, y) -> (y, x)
+        points = np.stack([y, x, v], axis=1)  # note the change (x, y) -> (y, x)
 
         boxes.append((ymin, xmin, ymax, xmax))
-        keypoints.append(k)
+        keypoints.append(points)
 
     # every image must have boxes
     if len(boxes) < 1:
         return None
 
+    num_persons = len(boxes)
     boxes = np.array(boxes, dtype='float32')
     keypoints = np.stack(keypoints, axis=0).astype('int64')
 
-    num_persons = len(boxes)
-    assert num_persons == len(keypoints)
+    # downsample and encode masks
+    masks_width, masks_height = math.ceil(width/DOWNSAMPLE), math.ceil(height/DOWNSAMPLE)
+    masks = np.stack([loss_mask, segmentation_mask], axis=2)
+    masks = masks.astype('uint8')
+    masks = cv2.resize(masks, (masks_width, masks_height), cv2.INTER_LANCZOS4)
+    masks = np.packbits(masks > 0)
+    # we use `ceil` because of the 'SAME' padding
 
     example = tf.train.Example(features=tf.train.Features(feature={
         'image': _bytes_feature(encoded_jpg),
         'num_persons': _int64_feature(num_persons),
         'boxes': _float_list_feature(boxes.reshape(-1)),
-        'keypoints': _int64_list_feature(list(keypoints.reshape(-1))),
-        'masks': _bytes_feature(masks.tostring()),
+        'keypoints': _int64_list_feature(keypoints.reshape(-1)),
+        'masks': _bytes_feature(masks.tostring())
     }))
     return example
 
@@ -153,32 +162,6 @@ def to_jpeg_bytes(array):
     tmp = io.BytesIO()
     image.save(tmp, format='jpeg')
     return tmp.getvalue()
-
-
-def get_masks(annotations, width, height, coco):
-
-    # whether to use a pixel for computing the loss
-    loss_mask = np.ones((height, width), dtype='bool')
-
-    for a in annotations:
-        if a['num_keypoints'] >= MIN_NUM_KEYPOINTS:
-            continue
-        unannotated_person_mask = coco.annToMask(a)
-        use_this = unannotated_person_mask == 0
-        loss_mask = np.logical_and(use_this, loss_mask)
-
-    # whether there is a person on a pixel
-    segmentation_mask = np.zeros((height, width), dtype='bool')
-
-    for a in annotations:
-        if a['num_keypoints'] < MIN_NUM_KEYPOINTS:
-            continue
-        person_mask = coco.annToMask(a)
-        segmentation_mask = np.logical_or(person_mask == 1, segmentation_mask)
-
-    masks = np.stack([loss_mask, segmentation_mask], axis=2)
-    masks = masks.astype('uint8')
-    return masks
 
 
 def convert(coco, image_dir, result_path, num_shards):
@@ -228,6 +211,7 @@ def convert(coco, image_dir, result_path, num_shards):
         writer.close()
 
     print('Number of skipped images:', num_skipped_images)
+    print('Number of shards:', shard_id + 1)
     print('Result is here:', result_path, '\n')
 
 

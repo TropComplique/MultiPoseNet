@@ -3,7 +3,7 @@ import tensorflow as tf
 
 """
 `image` is assumed to be a float tensor with shape [height, width, 3],
-it is a RGB image with pixel values in range [0, 1].
+it is a RGB image with pixel values in the range [0, 1].
 """
 
 

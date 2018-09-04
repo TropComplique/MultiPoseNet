@@ -1,11 +1,16 @@
 import tensorflow as tf
 
-from detector.input_pipeline.random_crop import random_crop
-from detector.input_pipeline.color_augmentations import random_color_manipulations, random_pixel_value_scale
+from .random_crop import random_crop
+from .color_augmentations import random_color_manipulations, random_pixel_value_scale
 from detector.constants import SHUFFLE_BUFFER_SIZE, NUM_THREADS, RESIZE_METHOD
 
 
-"""Input pipeline for training or evaluating object detectors."""
+"""
+Input pipeline for training or evaluating object detectors.
+It is assumed that all boxes are of the same class.
+
+During evaluation there is no image resizing.
+"""
 
 
 class DetectorPipeline:
@@ -105,7 +110,7 @@ class DetectorPipeline:
 
     def augmentation(self, image, boxes):
         image, boxes = self.randomly_crop_and_resize(image, boxes, probability=0.9)
-        image = random_color_manipulations(image, probability=0.5, grayscale_probability=0.1)
+        image = random_color_manipulations(image, probability=0.33, grayscale_probability=0.033)
         image = random_pixel_value_scale(image, probability=0.1, minval=0.8, maxval=1.2)
         boxes = random_jitter_boxes(boxes, ratio=0.03)
         image, boxes = random_flip_left_right(image, boxes)
@@ -117,7 +122,7 @@ class DetectorPipeline:
             image, boxes, _, _ = random_crop(
                 image, boxes,
                 min_object_covered=0.75,
-                aspect_ratio_range=(0.9, 1.1),
+                aspect_ratio_range=(0.85, 1.15),
                 area_range=(0.25, 1.0),
                 overlap_threshold=0.3
             )

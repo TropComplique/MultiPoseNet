@@ -45,23 +45,25 @@ def random_rotation(image, masks, boxes, keypoints, max_angle=45):
         cy = tf.clip_by_value(cy, 0.2*image_height, 0.8*image_height)
         cx = tf.clip_by_value(cx, 0.2*image_width, 0.8*image_width)
         box_center = tf.reshape(tf.stack([cy, cx]), [1, 2])
-        
+
+        # this changes the center of the image
+        center_translation = box_center - image_center
+
         # get a random angle
         max_angle_radians = max_angle*(math.pi/180.0)
-        max_angle_radians *= (0.8 - 2.0*tf.abs(cy - image_height*0.5)/image_height)
+        max_angle_radians *= (0.6 - 2.0*tf.abs(cx - image_width*0.5)/image_width)
         theta = tf.random_uniform(
             [], minval=-max_angle_radians,
             maxval=max_angle_radians, dtype=tf.float32
         )
 
-        # this changes the center of the image
-        center_translation = box_center - image_center
-
         # get a random image scaler
         size_ratio = box_width/image_width
-        minval = tf.minimum(2.0*size_ratio, 0.5)
-        maxval = tf.minimum(8.0*size_ratio, 1.25)
-        scale = tf.random_uniform([], minval=minval, maxval=maxval, dtype=tf.float32)
+        gamma = tf.minimum(cx, image_width - cx)
+        scale = image_width/(2.0*gamma)
+        # minval = tf.minimum(2.0*size_ratio, 0.5)
+        # maxval = tf.minimum(8.0*size_ratio, 1.25)
+        # scale = tf.random_uniform([], minval=minval, maxval=maxval, dtype=tf.float32)
         # after this scaling new box's `width` will be `s * width`
         # where `s` in the range [max(0.8, (1/8)*image_width/width), max(2, (1/2)*image_width/width)]
 
@@ -69,14 +71,15 @@ def random_rotation(image, masks, boxes, keypoints, max_angle=45):
             tf.cos(theta), tf.sin(theta),
             -tf.sin(theta), tf.cos(theta)
         ], axis=0)
-        rotation_matrix = (1.0/scale) * tf.reshape(rotation, [2, 2])
+        rotation_matrix = scale * tf.reshape(rotation, [2, 2])
         # not strictly a rotation, but a rotation with scaling
 
+        inverse_scale = 1.0 / scale
         inverse_rotation = tf.stack([
             tf.cos(theta), -tf.sin(theta),
             tf.sin(theta), tf.cos(theta)
         ], axis=0)
-        inverse_rotation_matrix = scale * tf.reshape(inverse_rotation, [2, 2])
+        inverse_rotation_matrix = inverse_scale * tf.reshape(inverse_rotation, [2, 2])
 
         # rotate boxes
         ymin, xmin, ymax, xmax = tf.unstack(boxes, axis=1)
@@ -117,21 +120,23 @@ def random_rotation(image, masks, boxes, keypoints, max_angle=45):
         translate = box_center - tf.matmul(box_center - center_translation, inverse_rotation_matrix)
         translate_y, translate_x = tf.unstack(tf.squeeze(translate, axis=0), axis=0)
         transform = tf.stack([
-            scale * tf.cos(theta), -scale * tf.sin(theta), translate_x,
-            scale * tf.sin(theta), scale * tf.cos(theta), translate_y,
+            inverse_scale * tf.cos(theta), -inverse_scale * tf.sin(theta), translate_x,
+            inverse_scale * tf.sin(theta), inverse_scale * tf.cos(theta), translate_y,
             0.0, 0.0
         ])
         image = tf.contrib.image.transform(image, transform, interpolation='BILINEAR')
 
         # masks are smaller than the image
         scaler = tf.to_float(tf.stack([1.0/DOWNSAMPLE, 1.0/DOWNSAMPLE]))
+        box_center *= scaler
+        center_translation *= scaler
 
         # rotate masks
-        translate = box_center * scaler - tf.matmul(scaler * (box_center - center_translation), inverse_rotation_matrix)
+        translate = box_center - tf.matmul(box_center - center_translation, inverse_rotation_matrix)
         translate_y, translate_x = tf.unstack(tf.squeeze(translate, axis=0), axis=0)
         transform = tf.stack([
-            scale * tf.cos(theta), -scale * tf.sin(theta), translate_x,
-            scale * tf.sin(theta), scale * tf.cos(theta), translate_y,
+            inverse_scale * tf.cos(theta), -inverse_scale * tf.sin(theta), translate_x,
+            inverse_scale * tf.sin(theta), inverse_scale * tf.cos(theta), translate_y,
             0.0, 0.0
         ])
         masks = tf.contrib.image.transform(masks, transform, interpolation='NEAREST')

@@ -1,2 +1,2 @@
-from detector.input_pipeline.person_detector_pipeline import DetectorPipeline
-from detector.input_pipeline.keypoints_detector_pipeline import KeypointPipeline
+from .keypoints_detector_pipeline import KeypointPipeline
+from .person_detector_pipeline import DetectorPipeline
