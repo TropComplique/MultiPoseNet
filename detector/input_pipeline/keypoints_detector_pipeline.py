@@ -143,8 +143,8 @@ class KeypointPipeline:
         return features, labels
 
     def augmentation(self, image, masks, boxes, keypoints):
-        image, masks, boxes, keypoints = random_rotation(image, masks, boxes, keypoints, max_angle=45)
-        image, masks, keypoints = self.randomly_crop_and_resize(image, masks, boxes, keypoints, probability=0.00009)
+        image, masks, boxes, keypoints = random_rotation(image, masks, boxes, keypoints, max_angle=45, probability=0.9)
+        image, masks, keypoints = self.randomly_crop_and_resize(image, masks, boxes, keypoints, probability=0.9)
         image = random_color_manipulations(image, probability=0.5, grayscale_probability=0.1)
         image = random_pixel_value_scale(image, probability=0.1, minval=0.9, maxval=1.1)
         image, masks, keypoints = random_flip_left_right(image, masks, keypoints)
@@ -162,7 +162,7 @@ class KeypointPipeline:
                 image, boxes,
                 min_object_covered=0.9,
                 aspect_ratio_range=(0.95, 1.05),
-                area_range=(0.25, 1.0),
+                area_range=(0.5, 1.0),
                 overlap_threshold=0.3
             )
             return image, window
