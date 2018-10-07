@@ -1,11 +1,16 @@
 import tensorflow as tf
 
+
+BATCH_NORM_MOMENTUM = 0.997
+BATCH_NORM_EPSILON = 1e-5
+DATA_FORMAT = 'channels_first'
+
+
 # all heatmaps and masks are downsampled
 DOWNSAMPLE = 4
 
 # a small value
 EPSILON = 1e-8
-
 # this is used when we are doing box encoding/decoding
 SCALE_FACTORS = [10.0, 10.0, 5.0, 5.0]
 

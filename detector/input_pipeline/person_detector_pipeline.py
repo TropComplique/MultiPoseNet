@@ -1,5 +1,4 @@
 import tensorflow as tf
-
 from .random_crop import random_crop
 from .color_augmentations import random_color_manipulations, random_pixel_value_scale
 from detector.constants import SHUFFLE_BUFFER_SIZE, NUM_THREADS, RESIZE_METHOD
@@ -8,8 +7,6 @@ from detector.constants import SHUFFLE_BUFFER_SIZE, NUM_THREADS, RESIZE_METHOD
 """
 Input pipeline for training or evaluating object detectors.
 It is assumed that all boxes are of the same class.
-
-During evaluation there is no image resizing.
 """
 
 
@@ -140,6 +137,34 @@ class DetectorPipeline:
         return image, boxes
 
 
+def random_image_crop(
+        image_as_string, boxes, labels, probability=0.1,
+        min_object_covered=0.9, aspect_ratio_range=(0.75, 1.33),
+        area_range=(0.5, 1.0), overlap_thresh=0.3):
+
+    def crop(image_as_string, boxes, labels):
+        image, boxes, keep_indices = randomly_crop_image(
+            image_as_string, boxes, min_object_covered,
+            aspect_ratio_range,
+            area_range, overlap_thresh
+        )
+        labels = tf.gather(labels, keep_indices)
+        return image, boxes, labels
+
+    def just_decode(image_as_string):
+        image = tf.image.decode_jpeg(image_as_string, channels=3)
+        image = tf.image.convert_image_dtype(image, tf.float32)
+        return image
+
+    do_it = tf.less(tf.random_uniform([]), probability)
+    image, boxes, labels = tf.cond(
+        do_it,
+        lambda: crop(image_as_string, boxes, labels),
+        lambda: (just_decode(image_as_string), boxes, labels)
+    )
+    return image, boxes, labels
+
+
 def random_flip_left_right(image, boxes):
 
     def flip(image, boxes):
@@ -200,19 +225,19 @@ def random_jitter_boxes(boxes, ratio=0.05):
 def randomly_pad(image, boxes, probability=0.9):
 
     def pad(image, boxes):
-        
+
         image_height = tf.shape(image)[0]
         image_width = tf.shape(image)[1]
-        
+
         scale = tf.random_uniform([], 1.1, 2.1)
         target_height = tf.to_int32(scale * tf.to_float(image_height))
         target_width = tf.to_int32(scale * tf.to_float(image_width))
         offset_y = target_height - image_height
-        offset_x = target_width - image_width 
-        
+        offset_x = target_width - image_width
+
         offset_y = tf.random_uniform([], 0, offset_y, dtype=tf.int32)
         offset_x = tf.random_uniform([], 0, offset_x, dtype=tf.int32)
-        
+
         image = tf.image.pad_to_bounding_box(
             image,
             offset_y, offset_x,
@@ -222,13 +247,13 @@ def randomly_pad(image, boxes, probability=0.9):
             image, [image_height, image_width],
             method=RESIZE_METHOD
         )
-        
+
         offset_y = tf.to_float(offset_y/image_height)
         offset_x = tf.to_float(offset_x/image_width)
         translation = tf.stack([offset_y, offset_x, offset_y, offset_x])
         boxes += translation
         boxes *= (1.0/scale)
-        
+
         return image, boxes
 
     do_it = tf.less(tf.random_uniform([]), probability)

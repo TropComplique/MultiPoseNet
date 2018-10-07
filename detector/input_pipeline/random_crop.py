@@ -1,13 +1,15 @@
 import tensorflow as tf
-
 from detector.utils import intersection, area
 from detector.constants import EPSILON
 
 
+"""Here it is assumed that box coordinates are normalized."""
+
+
 def random_crop(
-        image, boxes, min_object_covered=0.9,
+        image_as_string, boxes, min_object_covered=0.9,
         aspect_ratio_range=(0.75, 1.33), area_range=(0.5, 1.0),
-        overlap_threshold=0.3):
+        overlap_thresh=0.3):
     """Performs random crop. Given the input image and its bounding boxes,
     this op randomly crops a subimage.  Given a user-provided set of input constraints,
     the crop window is resampled until it satisfies these constraints.
@@ -16,8 +18,7 @@ def random_crop(
     form (e.g., lie in the unit square [0, 1]).
 
     Arguments:
-        image: a float tensor with shape [height, width, 3],
-            with pixel values varying between [0, 1].
+        image_as_string: a string tensor with shape [].
         boxes: a float tensor containing bounding boxes. It has shape
             [num_boxes, 4]. Boxes are in normalized form, meaning
             their coordinates vary between [0, 1].
@@ -27,18 +28,21 @@ def random_crop(
         aspect_ratio_range: allowed range for aspect ratio of cropped image.
         area_range: allowed range for area ratio between cropped image and the
             original image.
-        overlap_threshold: minimum overlap thresh with new cropped
+        overlap_thresh: minimum overlap thresh with new cropped
             image to keep the box.
     Returns:
-        image: cropped image.
+        image: cropped image, a float tensor with shape [None, None, 3],
+            with pixel values varying between [0, 1].
         boxes: remaining boxes.
         window: a float tensor with shape [4].
         keep_indices: indices of remaining boxes in input boxes tensor.
+            They are used to get a slice from the 'labels' tensor.
+            len(keep_indices) = len(boxes).
     """
-    with tf.name_scope('random_image_crop'):
+    with tf.name_scope('random_crop_image'):
 
         sample_distorted_bounding_box = tf.image.sample_distorted_bounding_box(
-            tf.shape(image),
+            tf.image.extract_jpeg_shape(image_as_string),
             bounding_boxes=tf.expand_dims(boxes, 0),
             min_object_covered=min_object_covered,
             aspect_ratio_range=aspect_ratio_range,
@@ -47,9 +51,11 @@ def random_crop(
             use_image_if_no_bounding_boxes=True
         )
         begin, size, window = sample_distorted_bounding_box
-        image = tf.slice(image, begin, size)
-        image.set_shape([None, None, 3])
         window = tf.squeeze(window, axis=[0, 1])
+
+        crop_window = tf.concat([begin[:2], size[:2]], axis=0)
+        image = tf.image.decode_and_crop_jpeg(image_as_string, crop_window, channels=3)
+        image = tf.image.convert_image_dtype(image, tf.float32)
 
         # remove boxes that are completely outside the cropped image
         boxes, inside_window_ids = prune_completely_outside_window(boxes, window)
@@ -57,7 +63,7 @@ def random_crop(
         # remove boxes that are too much outside the cropped image
         boxes, keep_indices = prune_non_overlapping_boxes(
             boxes, tf.expand_dims(window, 0),
-            min_overlap=overlap_threshold
+            min_overlap=overlap_thresh
         )
 
         # change coordinates of the remaining boxes
@@ -70,6 +76,7 @@ def random_crop(
 def prune_completely_outside_window(boxes, window):
     """Prunes bounding boxes that fall completely outside of the given window.
     This function does not clip partially overflowing boxes.
+
     Arguments:
         boxes: a float tensor with shape [M_in, 4].
         window: a float tensor with shape [4] representing [ymin, xmin, ymax, xmax]
@@ -81,14 +88,14 @@ def prune_completely_outside_window(boxes, window):
     """
     with tf.name_scope('prune_completely_outside_window'):
 
-        ymin, xmin, ymax, xmax = tf.split(boxes, num_or_size_splits=4, axis=1)
+        y_min, x_min, y_max, x_max = tf.split(boxes, num_or_size_splits=4, axis=1)
         # they have shape [None, 1]
-        win_ymin, win_xmin, win_ymax, win_xmax = tf.unstack(window)
+        win_y_min, win_x_min, win_y_max, win_x_max = tf.unstack(window)
         # they have shape []
 
         coordinate_violations = tf.concat([
-            tf.greater_equal(ymin, win_ymax), tf.greater_equal(xmin, win_xmax),
-            tf.less_equal(ymax, win_ymin), tf.less_equal(xmax, win_xmin)
+            tf.greater_equal(y_min, win_y_max), tf.greater_equal(x_min, win_x_max),
+            tf.less_equal(y_max, win_y_min), tf.less_equal(x_max, win_x_min)
         ], axis=1)
         valid_indices = tf.squeeze(
             tf.where(tf.logical_not(tf.reduce_any(coordinate_violations, 1))),

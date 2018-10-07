@@ -28,7 +28,7 @@ def get_heatmaps(
         sigma: a float number, size of the gaussian blobs.
         width, height: integers, size of the original image.
     Returns:
-        heatmaps: a numpy float array with shape [maps_height, maps_width, 17].
+        heatmaps: a numpy float array with shape [maps_height, maps_width, 17],
         where (maps_height, maps_width) = (height/downsample, width/downsample).
     """
 
@@ -71,7 +71,7 @@ def create_heatmap(
         unsigned int width,
         unsigned int height):
 
-    # coordinates (center_x, center_y) are normalized
+    # coordinates (center_y, center_x) are normalized to the [0, 1] range
 
     cdef np.ndarray[float, ndim=2] heatmap = np.zeros((height, width), dtype='float32')
     cdef float theta = 4.6052  # -ln(0.01)

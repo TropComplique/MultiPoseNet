@@ -14,14 +14,15 @@ def random_rotation(image, masks, boxes, keypoints, max_angle=45, probability=0.
         masks: a float tensor with shape [mask_height, mask_width, 2],
             they are smaller than the image in DOWNSAMPLE times.
         boxes: a float tensor with shape [num_persons, 4].
-        keypoints: an int tensor with shape [num_persons, 18, 3].
+        keypoints: an int tensor with shape [num_persons, 17, 3].
         max_angle: an integer.
+        probability: a float number.
     Returns:
         image: a float tensor with shape [height, width, 3].
         masks: a float tensor with shape [mask_height, mask_width, 2].
         boxes: a float tensor with shape [num_remaining_boxes, 4],
             where num_remaining_boxes <= num_persons.
-        keypoints: an int tensor with shape [num_persons, 18, 3],
+        keypoints: an int tensor with shape [num_persons, 17, 3],
             note that some keypoints might be out of the image, but
             we will correct that after doing a random crop.
     """
@@ -53,9 +54,9 @@ def random_rotation(image, masks, boxes, keypoints, max_angle=45, probability=0.
             # to radians
             max_angle_radians = max_angle*(math.pi/180.0)
 
-            # if the center is too near the borders then 
+            # if the center is too near the borders then
             # reduce the maximal rotation angle (where 0.6 = 0.3/0.5)
-            max_angle_radians *= (0.6 - 2.0*tf.abs(cx - image_width*0.5)/image_width)
+            max_angle_radians *= (0.6 - 2.0*tf.abs(cx - image_width*0.5)/image_width)/0.6
 
             # get a random angle
             theta = tf.random_uniform(
@@ -66,11 +67,17 @@ def random_rotation(image, masks, boxes, keypoints, max_angle=45, probability=0.
             # the distance to the nearest border
             gamma = tf.minimum(cx, image_width - cx)
 
-            size_ratio = image_width/box_width
+            # this minimizes the amount of zero padding after rescaling, i believe
             necessary_scale = image_width/(2.0*gamma)
+            # always necessary_scale >= 1
 
-            min_scale = tf.maximum(size_ratio/8.0, necessary_scale)
+            size_ratio = image_width/box_width
+
+            # new box width is maximum one third of the image width
             max_scale = size_ratio/3.0
+
+            min_scale = tf.minimum(tf.maximum(size_ratio/8.0, necessary_scale), max_scale - 1e-4)
+            # now always min_scale < max_scale
 
             # get a random image scaler
             scale = tf.random_uniform([], minval=min_scale, maxval=max_scale, dtype=tf.float32)
@@ -109,11 +116,10 @@ def random_rotation(image, masks, boxes, keypoints, max_angle=45, probability=0.
             ymax = tf.clip_by_value(ymax, 0.0, image_height)
             xmax = tf.clip_by_value(xmax, 0.0, image_width)
 
-            # in the case if some boxes went over the border
+            # in the case if some boxes went over the border too much
             area = (xmax - xmin) * (ymax - ymin)
-            valid_boxes = tf.squeeze(tf.where(area >= 64), axis=1)
             boxes = tf.stack([ymin, xmin, ymax, xmax], axis=1)
-            boxes = tf.gather(boxes, valid_boxes)
+            boxes = tf.boolean_mask(boxes, area >= 64)
 
             # rotate keypoints
             points, v = tf.split(keypoints, [2, 1], axis=2)

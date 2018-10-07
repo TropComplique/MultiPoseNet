@@ -188,11 +188,12 @@ def convert(coco, image_dir, result_path, num_shards):
 
         if num_examples_written == 0:
             shard_path = os.path.join(result_path, 'shard-%04d.tfrecords' % shard_id)
-            writer = tf.python_io.TFRecordWriter(shard_path)
+            if not os.path.exists(shard_path):
+                writer = tf.python_io.TFRecordWriter(shard_path)
 
         image_metadata = coco.loadImgs(example)[0]
         image_path = os.path.join(image_dir, image_metadata['file_name'])
-        annIds = coco.getAnnIds(imgIds=image_metadata['id'], catIds=catIds)
+        annIds = coco.getAnnIds(imgIds=image_metadata['id'], catIds=catIds, iscrowd=True)
         annotations = coco.loadAnns(annIds)
 
         tf_example = to_tf_example(image_path, annotations, coco)
