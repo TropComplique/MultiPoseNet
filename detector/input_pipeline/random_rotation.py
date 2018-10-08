@@ -1,6 +1,5 @@
 import tensorflow as tf
 import math
-
 from detector.constants import DOWNSAMPLE
 
 

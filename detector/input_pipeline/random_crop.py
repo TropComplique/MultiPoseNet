@@ -3,9 +3,6 @@ from detector.utils import intersection, area
 from detector.constants import EPSILON
 
 
-"""Here it is assumed that box coordinates are normalized."""
-
-
 def random_crop(
         image_as_string, boxes, min_object_covered=0.9,
         aspect_ratio_range=(0.75, 1.33), area_range=(0.5, 1.0),
@@ -36,8 +33,6 @@ def random_crop(
         boxes: remaining boxes.
         window: a float tensor with shape [4].
         keep_indices: indices of remaining boxes in input boxes tensor.
-            They are used to get a slice from the 'labels' tensor.
-            len(keep_indices) = len(boxes).
     """
     with tf.name_scope('random_crop_image'):
 

@@ -1,7 +1,7 @@
 import tensorflow as tf
 from .random_crop import random_crop
 from .color_augmentations import random_color_manipulations, random_pixel_value_scale
-from detector.constants import SHUFFLE_BUFFER_SIZE, NUM_THREADS, RESIZE_METHOD
+from detector.constants import SHUFFLE_BUFFER_SIZE, NUM_THREADS, RESIZE_METHOD, DIVISOR
 
 
 """
@@ -11,23 +11,28 @@ It is assumed that all boxes are of the same class.
 
 
 class DetectorPipeline:
-    def __init__(self, filenames, batch_size, is_training, image_size):
+    def __init__(self, filenames, is_training, params):
         """
-        Note: when evaluating set batch_size to 1 and image_size to None.
+        During the evaluation we resize images keeping aspect ratio.
 
         Arguments:
             filenames: a list of strings, paths to tfrecords files.
-            batch_size: an integer.
             is_training: a boolean.
-            image_size: an integer or None.
+            params: a dict.
         """
         self.is_training = is_training
-        self.image_size = image_size
 
-        # when evaluating, images aren't resized
         if not is_training:
-            assert batch_size == 1
-            assert image_size is None
+            batch_size = 1
+            self.image_size = [None, None]
+            self.min_dimension = params['min_dimension']
+        else:
+            batch_size = params['batch_size']
+            height = params['image_height']
+            width = params['image_width']
+            assert height % DIVISOR == 0
+            assert width % DIVISOR == 0
+            self.image_size = [height, width]
 
         def get_num_samples(filename):
             return sum(1 for _ in tf.python_io.tf_record_iterator(filename))
@@ -51,12 +56,10 @@ class DetectorPipeline:
 
         if is_training:
             dataset = dataset.shuffle(buffer_size=SHUFFLE_BUFFER_SIZE)
-
         dataset = dataset.repeat(None if is_training else 1)
-        dataset = dataset.map(self._parse_and_preprocess, num_parallel_calls=NUM_THREADS)
+        dataset = dataset.map(self._parse_and_preprocess, num_parallel_calls=NUM_PARALLEL_CALLS)
 
-        # we need batches with static first dimension
-        padded_shapes = ({'images': [self.image_size, self.image_size, 3]}, {'boxes': [None, 4], 'num_boxes': []})
+        padded_shapes = ({'images': self.image_size + [3]}, {'boxes': [None, 4], 'num_boxes': []})
         dataset = dataset.padded_batch(batch_size, padded_shapes, drop_remainder=True)
         dataset = dataset.prefetch(buffer_size=1)
 
@@ -70,7 +73,7 @@ class DetectorPipeline:
         Returns:
             image: a float tensor with shape [image_height, image_width, 3],
                 an RGB image with pixel values in the range [0, 1].
-            boxes: a float tensor with shape [num_boxes, 4], they have normalized coordinates.
+            boxes: a float tensor with shape [num_boxes, 4].
             num_boxes: an int tensor with shape [].
         """
         features = {
@@ -80,9 +83,8 @@ class DetectorPipeline:
         }
         parsed_features = tf.parse_single_example(example_proto, features)
 
-        # get an image
-        image = tf.image.decode_jpeg(parsed_features['image'], channels=3)
-        image = tf.image.convert_image_dtype(image, tf.float32)
+        # get an image, it will be decoded after cropping
+        image_as_string = parsed_features['image']
         # now pixel values are scaled to the [0, 1] range
 
         # get number of people on the image
@@ -98,27 +100,34 @@ class DetectorPipeline:
         boxes /= scaler
 
         if self.is_training:
-            image, boxes = self.augmentation(image, boxes)
+            image, boxes = self.augmentation(image_as_string, boxes)
             num_boxes = tf.shape(boxes)[0]  # it could change after augmentations
+        else:
+            image = tf.image.decode_jpeg(image_as_string, channels=3)
+            image = tf.image.convert_image_dtype(image, tf.float32)
+            # now pixel values are scaled to [0, 1] range
+
+            image, box_scaler = resize_keeping_aspect_ratio(image, self.min_dimension, DIVISOR)
+            boxes *= box_scaler
 
         features = {'images': image}
         labels = {'boxes': boxes, 'num_boxes': num_boxes}
         return features, labels
 
-    def augmentation(self, image, boxes):
-        image, boxes = self.randomly_crop_and_resize(image, boxes, probability=0.9)
+    def augmentation(self, image_as_string, boxes):
+        image, boxes = self.randomly_crop_and_resize(image_as_string, boxes, probability=0.9)
         image, boxes = randomly_pad(image, boxes, probability=0.1)
         image = random_color_manipulations(image, probability=0.33, grayscale_probability=0.033)
         image = random_pixel_value_scale(image, probability=0.1, minval=0.8, maxval=1.2)
-        boxes = random_jitter_boxes(boxes, ratio=0.01)
+        boxes = random_box_jitter(boxes, ratio=0.01)
         image, boxes = random_flip_left_right(image, boxes)
         return image, boxes
 
-    def randomly_crop_and_resize(self, image, boxes, probability=0.9):
+    def randomly_crop_and_resize(self, image_as_string, boxes, probability=0.9):
 
-        def crop(image, boxes):
+        def crop(image_as_string, boxes):
             image, boxes, _, _ = random_crop(
-                image, boxes,
+                image_as_string, boxes,
                 min_object_covered=0.9,
                 aspect_ratio_range=(0.85, 1.15),
                 area_range=(0.1, 1.0),
@@ -126,103 +135,30 @@ class DetectorPipeline:
             )
             return image, boxes
 
+        def just_decode(image_as_string):
+            image = tf.image.decode_jpeg(image_as_string, channels=3)
+            image = tf.image.convert_image_dtype(image, tf.float32)
+            return image
+
         do_it = tf.less(tf.random_uniform([]), probability)
-        image, boxes = tf.cond(do_it, lambda: crop(image, boxes), lambda: (image, boxes))
+        image, boxes = tf.cond(
+            do_it,
+            lambda: crop(image_as_string, boxes),
+            lambda: (just_decode(image_as_string), boxes)
+        )
 
         image = tf.image.resize_images(
             image, [self.image_size, self.image_size],
             method=RESIZE_METHOD
         )
-        # note that boxes are with normalized coordinates
         return image, boxes
-
-
-def random_image_crop(
-        image_as_string, boxes, labels, probability=0.1,
-        min_object_covered=0.9, aspect_ratio_range=(0.75, 1.33),
-        area_range=(0.5, 1.0), overlap_thresh=0.3):
-
-    def crop(image_as_string, boxes, labels):
-        image, boxes, keep_indices = randomly_crop_image(
-            image_as_string, boxes, min_object_covered,
-            aspect_ratio_range,
-            area_range, overlap_thresh
-        )
-        labels = tf.gather(labels, keep_indices)
-        return image, boxes, labels
-
-    def just_decode(image_as_string):
-        image = tf.image.decode_jpeg(image_as_string, channels=3)
-        image = tf.image.convert_image_dtype(image, tf.float32)
-        return image
-
-    do_it = tf.less(tf.random_uniform([]), probability)
-    image, boxes, labels = tf.cond(
-        do_it,
-        lambda: crop(image_as_string, boxes, labels),
-        lambda: (just_decode(image_as_string), boxes, labels)
-    )
-    return image, boxes, labels
-
-
-def random_flip_left_right(image, boxes):
-
-    def flip(image, boxes):
-        flipped_image = tf.image.flip_left_right(image)
-        ymin, xmin, ymax, xmax = tf.unstack(boxes, axis=1)
-        flipped_xmin = tf.subtract(1.0, xmax)
-        flipped_xmax = tf.subtract(1.0, xmin)
-        flipped_boxes = tf.stack([ymin, flipped_xmin, ymax, flipped_xmax], axis=1)
-        return flipped_image, flipped_boxes
-
-    with tf.name_scope('random_flip_left_right'):
-        do_it = tf.less(tf.random_uniform([]), 0.5)
-        image, boxes = tf.cond(do_it, lambda: flip(image, boxes), lambda: (image, boxes))
-        return image, boxes
-
-
-def random_jitter_boxes(boxes, ratio=0.05):
-    """Randomly jitter bounding boxes.
-
-    Arguments:
-        boxes: a float tensor with shape [N, 4].
-        ratio: a float number.
-            The ratio of the box width and height that the corners can jitter.
-            For example if the width is 100 pixels and ratio is 0.05,
-            the corners can jitter up to 5 pixels in the x direction.
-    Returns:
-        a float tensor with shape [N, 4].
-    """
-    def random_jitter_box(box, ratio):
-        """Randomly jitter a box.
-        Arguments:
-            box: a float tensor with shape [4].
-            ratio: a float number.
-        Returns:
-            a float tensor with shape [4].
-        """
-        ymin, xmin, ymax, xmax = tf.unstack(box, axis=0)
-        box_height, box_width = ymax - ymin, xmax - xmin
-        hw_coefs = tf.stack([box_height, box_width, box_height, box_width])
-
-        rand_numbers = tf.random_uniform(
-            [4], minval=-ratio, maxval=ratio, dtype=tf.float32
-        )
-        hw_rand_coefs = tf.multiply(hw_coefs, rand_numbers)
-
-        jittered_box = tf.add(box, hw_rand_coefs)
-        return jittered_box
-
-    with tf.name_scope('random_jitter_boxes'):
-        distorted_boxes = tf.map_fn(
-            lambda x: random_jitter_box(x, ratio),
-            boxes, dtype=tf.float32, back_prop=False
-        )
-        distorted_boxes = tf.clip_by_value(distorted_boxes, 0.0, 1.0)
-        return distorted_boxes
 
 
 def randomly_pad(image, boxes, probability=0.9):
+    """
+    This function makes content of the image smaller by
+    padding with zeros below and on the right side.
+    """
 
     def pad(image, boxes):
 
@@ -259,3 +195,119 @@ def randomly_pad(image, boxes, probability=0.9):
     do_it = tf.less(tf.random_uniform([]), probability)
     image, boxes = tf.cond(do_it, lambda: pad(image, boxes), lambda: (image, boxes))
     return image, boxes
+
+
+def resize_keeping_aspect_ratio(image, min_dimension, divisor):
+    """
+    When using a usual FPN, divisor must be equal to 128.
+
+    Arguments:
+        image: a float tensor with shape [height, width, 3].
+        min_dimension: an integer.
+        divisor: an integer.
+    Returns:
+        image: a float tensor with shape [new_height, new_width, 3],
+            where `min_dimension = min(new_height, new_width)`,
+            `new_height` and `new_width` are divisible by `divisor`.
+        box_scaler: a float tensor with shape [4].
+    """
+    assert min_dimension % divisor == 0
+
+    min_dimension = tf.constant(min_dimension, dtype=tf.int32)
+    divisor = tf.constant(divisor, dtype=tf.int32)
+
+    shape = tf.shape(image)
+    height, width = shape[0], shape[1]
+
+    original_min_dim = tf.minimum(height, width)
+    scale_factor = tf.to_float(min_dimension / original_min_dim)
+
+    def scale(x):
+        unpadded_x = tf.to_int32(tf.round(tf.to_float(x) * scale_factor))
+        x = tf.to_int32(tf.ceil(unpadded_x / divisor))
+        pad = divisor * x - unpadded_x
+        return (unpadded_x, pad)
+
+    zero = tf.constant(0, dtype=tf.int32)
+    new_height, pad_height, new_width, pad_width = tf.cond(
+        tf.greater_equal(height, width),
+        lambda: scale(height) + (min_dimension, zero),
+        lambda: (min_dimension, zero) + scale(width)
+    )
+
+    # resize keeping aspect ratio
+    image = tf.image.resize_images(image, [new_height, new_width], method=RESIZE_METHOD)
+
+    image = tf.image.pad_to_bounding_box(
+        image, offset_height=0, offset_width=0,
+        target_height=new_height + pad_height,
+        target_width=new_width + pad_width
+    )
+    # it pads image at the bottom or at the right
+
+    # we need to rescale bounding box coordinates
+    box_scaler = tf.to_float(tf.stack([
+        new_height/(new_height + pad_height),
+        new_width/(new_width + pad_width),
+        new_height/(new_height + pad_height),
+        new_width/(new_width + pad_width),
+    ]))
+
+    return image, box_scaler
+
+
+def random_flip_left_right(image, boxes):
+
+    def flip(image, boxes):
+        flipped_image = tf.image.flip_left_right(image)
+        ymin, xmin, ymax, xmax = tf.unstack(boxes, axis=1)
+        flipped_xmin = tf.subtract(1.0, xmax)
+        flipped_xmax = tf.subtract(1.0, xmin)
+        flipped_boxes = tf.stack([ymin, flipped_xmin, ymax, flipped_xmax], axis=1)
+        return flipped_image, flipped_boxes
+
+    with tf.name_scope('random_flip_left_right'):
+        do_it = tf.less(tf.random_uniform([]), 0.5)
+        image, boxes = tf.cond(do_it, lambda: flip(image, boxes), lambda: (image, boxes))
+        return image, boxes
+
+
+def random_box_jitter(boxes, ratio=0.05):
+    """Randomly jitter bounding boxes.
+
+    Arguments:
+        boxes: a float tensor with shape [N, 4].
+        ratio: a float number.
+            The ratio of the box width and height that the corners can jitter.
+            For example if the width is 100 pixels and ratio is 0.05,
+            the corners can jitter up to 5 pixels in the x direction.
+    Returns:
+        a float tensor with shape [N, 4].
+    """
+    def jitter_box(box, ratio):
+        """
+        Arguments:
+            box: a float tensor with shape [4].
+            ratio: a float number.
+        Returns:
+            a float tensor with shape [4].
+        """
+        ymin, xmin, ymax, xmax = tf.unstack(box, axis=0)
+        box_height, box_width = ymax - ymin, xmax - xmin
+        hw_coefs = tf.stack([box_height, box_width, box_height, box_width])
+
+        rand_numbers = tf.random_uniform(
+            [4], minval=-ratio, maxval=ratio, dtype=tf.float32
+        )
+        hw_rand_coefs = tf.multiply(hw_coefs, rand_numbers)
+
+        jittered_box = tf.add(box, hw_rand_coefs)
+        return jittered_box
+
+    with tf.name_scope('random_box_jitter'):
+        distorted_boxes = tf.map_fn(
+            lambda x: jitter_box(x, ratio),
+            boxes, dtype=tf.float32, back_prop=False
+        )
+        distorted_boxes = tf.clip_by_value(distorted_boxes, 0.0, 1.0)
+        return distorted_boxes

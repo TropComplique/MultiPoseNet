@@ -5,6 +5,7 @@ BATCH_NORM_MOMENTUM = 0.997
 BATCH_NORM_EPSILON = 1e-5
 DATA_FORMAT = 'channels_first'
 
+NUM_KEYPOINTS = 17
 
 # all heatmaps and masks are downsampled
 DOWNSAMPLE = 4

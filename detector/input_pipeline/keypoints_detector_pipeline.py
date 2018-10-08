@@ -1,11 +1,11 @@
 import tensorflow as tf
 import math
 
-from detector.input_pipeline.random_crop import random_crop
-from detector.input_pipeline.random_rotation import random_rotation
-from detector.input_pipeline.color_augmentations import random_color_manipulations, random_pixel_value_scale
+from .random_crop import random_crop
+from .random_rotation import random_rotation
+from .color_augmentations import random_color_manipulations, random_pixel_value_scale
 from detector.constants import SHUFFLE_BUFFER_SIZE, NUM_THREADS, RESIZE_METHOD, DOWNSAMPLE
-from detector.input_pipeline.heatmap_creation import get_heatmaps
+from .heatmap_creation import get_heatmaps
 
 
 """Input pipeline for training or evaluating networks for heatmap regression."""
@@ -14,21 +14,26 @@ from detector.input_pipeline.heatmap_creation import get_heatmaps
 class KeypointPipeline:
     def __init__(self, filenames, batch_size, is_training, image_size):
         """
-        Note: when evaluating set batch_size to 1 and image_size to None.
+        During the evaluation we resize images keeping aspect ratio.
 
         Arguments:
             filenames: a list of strings, paths to tfrecords files.
-            batch_size: an integer.
             is_training: a boolean.
-            image_size: an integer or None.
+            params: a dict.
         """
         self.is_training = is_training
-        self.image_size = image_size
 
-        # when evaluating, images aren't resized
         if not is_training:
-            assert batch_size == 1
-            assert image_size is None
+            batch_size = 1
+            self.image_size = [None, None]
+            self.min_dimension = params['min_dimension']
+        else:
+            batch_size = params['batch_size']
+            height = params['image_height']
+            width = params['image_width']
+            assert height % DIVISOR == 0
+            assert width % DIVISOR == 0
+            self.image_size = [height, width]
 
         def get_num_samples(filename):
             return sum(1 for _ in tf.python_io.tf_record_iterator(filename))
@@ -52,9 +57,8 @@ class KeypointPipeline:
 
         if is_training:
             dataset = dataset.shuffle(buffer_size=SHUFFLE_BUFFER_SIZE)
-
         dataset = dataset.repeat(None if is_training else 1)
-        dataset = dataset.map(self._parse_and_preprocess, num_parallel_calls=NUM_THREADS)
+        dataset = dataset.map(self._parse_and_preprocess, num_parallel_calls=NUM_PARALLEL_CALLS)
 
         dataset = dataset.batch(batch_size)
         dataset = dataset.prefetch(buffer_size=1)
@@ -69,8 +73,8 @@ class KeypointPipeline:
         Returns:
             image: a float tensor with shape [image_height, image_width, 3],
                 an RGB image with pixel values in the range [0, 1].
-            heatmaps: a float tensor with shape [downsampled_height, downsampled_width, 17].
-            masks: a float binary tensor with shape [downsampled_height, downsampled_width, 2].
+            heatmaps: a float tensor with shape [downsampled_height, downsampled_width, 18].
+            loss_mask: a float binary tensor with shape [downsampled_height, downsampled_width].
 
             where `downsampled_height = image_height/downsample`
             and `downsampled_width = image_width/downsample`.
@@ -84,9 +88,8 @@ class KeypointPipeline:
         }
         parsed_features = tf.parse_single_example(example_proto, features)
 
-        # get an image
-        image = tf.image.decode_jpeg(parsed_features['image'], channels=3)
-        image = tf.image.convert_image_dtype(image, tf.float32)
+        # get an image, it will be decoded after cropping
+        image_as_string = parsed_features['image']
         # now pixel values are scaled to the [0, 1] range
 
         # get number of people on the image
@@ -121,8 +124,15 @@ class KeypointPipeline:
         masks = tf.to_float(masks)  # it has binary values only
 
         if self.is_training:
-            image, masks, keypoints = self.augmentation(image, masks, boxes, keypoints)
+            image, masks, keypoints = self.augmentation(image_as_string, masks, boxes, keypoints)
             image_height, image_width = self.image_size, self.image_size
+        else:
+            image = tf.image.decode_jpeg(image_as_string, channels=3)
+            image = tf.image.convert_image_dtype(image, tf.float32)
+            # now pixel values are scaled to [0, 1] range
+
+            image, box_scaler = resize_keeping_aspect_ratio(image, self.min_dimension, DIVISOR)
+            boxes *= box_scaler
 
         sigma = 1.0
         heatmaps = tf.py_func(
@@ -234,10 +244,10 @@ def random_flip_left_right(image, masks, keypoints):
 
         """
         The keypoint order:
-        0: 'nose', 
-        1: 'left eye', 2: 'right eye', 
+        0: 'nose',
+        1: 'left eye', 2: 'right eye',
         3: 'left ear', 4: 'right ear',
-        5: 'left shoulder', 6: 'right shoulder', 
+        5: 'left shoulder', 6: 'right shoulder',
         7: 'left elbow', 8: 'right elbow',
         9: 'left wrist', 10: 'right wrist',
         11: 'left hip', 12: 'right hip',

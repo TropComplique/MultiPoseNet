@@ -40,7 +40,7 @@ DOWNSAMPLE = 4
 
 # we don't use poorly visible persons
 MIN_NUM_KEYPOINTS = 2
-MIN_BOX_SIDE = 16
+MIN_BOX_SIDE = 8
 
 
 def to_tf_example(image_path, annotations, coco):
