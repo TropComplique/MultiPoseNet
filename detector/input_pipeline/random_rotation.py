@@ -88,13 +88,6 @@ def random_rotation(image, masks, boxes, keypoints, max_angle=45, probability=0.
             rotation_matrix = scale * tf.reshape(rotation, [2, 2])
             # not strictly a rotation, but a rotation with scaling
 
-            inverse_scale = 1.0 / scale
-            inverse_rotation = tf.stack([
-                tf.cos(theta), -tf.sin(theta),
-                tf.sin(theta), tf.cos(theta)
-            ], axis=0)
-            inverse_rotation_matrix = inverse_scale * tf.reshape(inverse_rotation, [2, 2])
-
             # rotate boxes
             ymin, xmin, ymax, xmax = tf.unstack(boxes, axis=1)
             p1 = tf.stack([ymin, xmin], axis=1)  # top left
@@ -118,7 +111,7 @@ def random_rotation(image, masks, boxes, keypoints, max_angle=45, probability=0.
             # in the case if some boxes went over the border too much
             area = (xmax - xmin) * (ymax - ymin)
             boxes = tf.stack([ymin, xmin, ymax, xmax], axis=1)
-            boxes = tf.boolean_mask(boxes, area >= 64)
+            boxes = tf.boolean_mask(boxes, area >= 36)
 
             # rotate keypoints
             points, v = tf.split(keypoints, [2, 1], axis=2)
@@ -128,6 +121,14 @@ def random_rotation(image, masks, boxes, keypoints, max_angle=45, probability=0.
             points = tf.matmul(points - box_center, rotation_matrix) + box_center - center_translation
             points = tf.reshape(tf.to_int32(tf.round(points)), [num_persons, 17, 2])
             keypoints = tf.concat([points, v], axis=2)
+
+            # `tf.contrib.image.transform` needs inverse transform
+            inverse_scale = 1.0 / scale
+            inverse_rotation = tf.stack([
+                tf.cos(theta), -tf.sin(theta),
+                tf.sin(theta), tf.cos(theta)
+            ], axis=0)
+            inverse_rotation_matrix = inverse_scale * tf.reshape(inverse_rotation, [2, 2])
 
             # rotate the image
             translate = box_center - tf.matmul(box_center - center_translation, inverse_rotation_matrix)

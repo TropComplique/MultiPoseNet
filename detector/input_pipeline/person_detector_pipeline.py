@@ -1,7 +1,7 @@
 import tensorflow as tf
+from detector.constants import SHUFFLE_BUFFER_SIZE, NUM_THREADS, RESIZE_METHOD, DIVISOR
 from .random_crop import random_crop
 from .color_augmentations import random_color_manipulations, random_pixel_value_scale
-from detector.constants import SHUFFLE_BUFFER_SIZE, NUM_THREADS, RESIZE_METHOD, DIVISOR
 
 
 """
@@ -83,13 +83,14 @@ class DetectorPipeline:
         }
         parsed_features = tf.parse_single_example(example_proto, features)
 
-        # get an image, it will be decoded after cropping
-        image_as_string = parsed_features['image']
+        # get an image
+        image = tf.image.decode_jpeg(parsed_features['image'], channels=3)
+        image = tf.image.convert_image_dtype(image, tf.float32)
         # now pixel values are scaled to the [0, 1] range
 
         # get number of people on the image
         num_boxes = tf.to_int32(parsed_features['num_persons'])
-        # it is assumed that num_persons > 0
+        # it is assumed that num_boxes > 0
 
         # get groundtruth boxes, they are in absolute coordinates
         boxes = tf.reshape(parsed_features['boxes'], [num_boxes, 4])
@@ -100,13 +101,9 @@ class DetectorPipeline:
         boxes /= scaler
 
         if self.is_training:
-            image, boxes = self.augmentation(image_as_string, boxes)
+            image, boxes = self.augmentation(image, boxes)
             num_boxes = tf.shape(boxes)[0]  # it could change after augmentations
         else:
-            image = tf.image.decode_jpeg(image_as_string, channels=3)
-            image = tf.image.convert_image_dtype(image, tf.float32)
-            # now pixel values are scaled to [0, 1] range
-
             image, box_scaler = resize_keeping_aspect_ratio(image, self.min_dimension, DIVISOR)
             boxes *= box_scaler
 
@@ -114,8 +111,8 @@ class DetectorPipeline:
         labels = {'boxes': boxes, 'num_boxes': num_boxes}
         return features, labels
 
-    def augmentation(self, image_as_string, boxes):
-        image, boxes = self.randomly_crop_and_resize(image_as_string, boxes, probability=0.9)
+    def augmentation(self, image, boxes):
+        image, boxes = randomly_crop_and_resize(image, boxes, self.image_size, probability=0.9)
         image, boxes = randomly_pad(image, boxes, probability=0.1)
         image = random_color_manipulations(image, probability=0.33, grayscale_probability=0.033)
         image = random_pixel_value_scale(image, probability=0.1, minval=0.8, maxval=1.2)
@@ -123,41 +120,33 @@ class DetectorPipeline:
         image, boxes = random_flip_left_right(image, boxes)
         return image, boxes
 
-    def randomly_crop_and_resize(self, image_as_string, boxes, probability=0.9):
 
-        def crop(image_as_string, boxes):
-            image, boxes, _, _ = random_crop(
-                image_as_string, boxes,
-                min_object_covered=0.9,
-                aspect_ratio_range=(0.85, 1.15),
-                area_range=(0.1, 1.0),
-                overlap_threshold=0.4
-            )
-            return image, boxes
+def randomly_crop_and_resize(image, boxes, image_size, probability=0.9):
 
-        def just_decode(image_as_string):
-            image = tf.image.decode_jpeg(image_as_string, channels=3)
-            image = tf.image.convert_image_dtype(image, tf.float32)
-            return image
-
-        do_it = tf.less(tf.random_uniform([]), probability)
-        image, boxes = tf.cond(
-            do_it,
-            lambda: crop(image_as_string, boxes),
-            lambda: (just_decode(image_as_string), boxes)
-        )
-
-        image = tf.image.resize_images(
-            image, [self.image_size, self.image_size],
-            method=RESIZE_METHOD
+    def crop(image, boxes):
+        image, boxes, _, _ = random_crop(
+            image, boxes,
+            min_object_covered=0.9,
+            aspect_ratio_range=(0.85, 1.15),
+            area_range=(0.33, 1.0),
+            overlap_threshold=0.4
         )
         return image, boxes
+
+    do_it = tf.less(tf.random_uniform([]), probability)
+    image, boxes = tf.cond(
+        do_it,
+        lambda: crop(image, boxes),
+        lambda: (image, boxes)
+    )
+    image = tf.image.resize_images(image, image_size, method=RESIZE_METHOD)
+    return image, boxes
 
 
 def randomly_pad(image, boxes, probability=0.9):
     """
-    This function makes content of the image smaller by
-    padding with zeros below and on the right side.
+    This function makes content of the image
+    smaller by scaling and padding with zeros.
     """
 
     def pad(image, boxes):
@@ -165,30 +154,33 @@ def randomly_pad(image, boxes, probability=0.9):
         image_height = tf.shape(image)[0]
         image_width = tf.shape(image)[1]
 
-        scale = tf.random_uniform([], 1.1, 2.1)
+        # randomly reduce image scale
+        scale = tf.random_uniform([], 0.5, 0.9)
         target_height = tf.to_int32(scale * tf.to_float(image_height))
         target_width = tf.to_int32(scale * tf.to_float(image_width))
-        offset_y = target_height - image_height
-        offset_x = target_width - image_width
 
+        image = tf.image.resize_images(
+            image, [target_height, target_width],
+            method=RESIZE_METHOD
+        )
+
+        # randomly pad to the initial size
+        offset_y = image_height - target_height
+        offset_x = image_width - target_width
         offset_y = tf.random_uniform([], 0, offset_y, dtype=tf.int32)
         offset_x = tf.random_uniform([], 0, offset_x, dtype=tf.int32)
 
         image = tf.image.pad_to_bounding_box(
-            image,
-            offset_y, offset_x,
-            target_height, target_width
-        )
-        image = tf.image.resize_images(
-            image, [image_height, image_width],
-            method=RESIZE_METHOD
+            image, offset_y, offset_x,
+            image_height, image_width
         )
 
+        # transform boxes
+        boxes *= scale
         offset_y = tf.to_float(offset_y/image_height)
         offset_x = tf.to_float(offset_x/image_width)
         translation = tf.stack([offset_y, offset_x, offset_y, offset_x])
         boxes += translation
-        boxes *= (1.0/scale)
 
         return image, boxes
 
@@ -199,6 +191,7 @@ def randomly_pad(image, boxes, probability=0.9):
 
 def resize_keeping_aspect_ratio(image, min_dimension, divisor):
     """
+    This function resizes and possibly pads with zeros.
     When using a usual FPN, divisor must be equal to 128.
 
     Arguments:

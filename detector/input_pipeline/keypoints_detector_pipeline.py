@@ -1,10 +1,10 @@
 import tensorflow as tf
 import math
-
+from detector.constants import SHUFFLE_BUFFER_SIZE, NUM_THREADS, RESIZE_METHOD, DOWNSAMPLE
 from .random_crop import random_crop
 from .random_rotation import random_rotation
 from .color_augmentations import random_color_manipulations, random_pixel_value_scale
-from detector.constants import SHUFFLE_BUFFER_SIZE, NUM_THREADS, RESIZE_METHOD, DOWNSAMPLE
+from .person_detector_pipeline import resize_keeping_aspect_ratio
 from .heatmap_creation import get_heatmaps
 
 
@@ -88,8 +88,9 @@ class KeypointPipeline:
         }
         parsed_features = tf.parse_single_example(example_proto, features)
 
-        # get an image, it will be decoded after cropping
-        image_as_string = parsed_features['image']
+        # get an image
+        image = tf.image.decode_jpeg(parsed_features['image'], channels=3)
+        image = tf.image.convert_image_dtype(image, tf.float32)
         # now pixel values are scaled to the [0, 1] range
 
         # get number of people on the image
@@ -124,15 +125,10 @@ class KeypointPipeline:
         masks = tf.to_float(masks)  # it has binary values only
 
         if self.is_training:
-            image, masks, keypoints = self.augmentation(image_as_string, masks, boxes, keypoints)
+            image, masks, keypoints = self.augmentation(image, masks, boxes, keypoints)
             image_height, image_width = self.image_size, self.image_size
         else:
-            image = tf.image.decode_jpeg(image_as_string, channels=3)
-            image = tf.image.convert_image_dtype(image, tf.float32)
-            # now pixel values are scaled to [0, 1] range
-
-            image, box_scaler = resize_keeping_aspect_ratio(image, self.min_dimension, DIVISOR)
-            boxes *= box_scaler
+            image, _ = resize_keeping_aspect_ratio(image, self.min_dimension, DIVISOR)
 
         sigma = 1.0
         heatmaps = tf.py_func(
@@ -154,81 +150,92 @@ class KeypointPipeline:
 
     def augmentation(self, image, masks, boxes, keypoints):
         image, masks, boxes, keypoints = random_rotation(image, masks, boxes, keypoints, max_angle=45, probability=0.9)
-        image, masks, keypoints = self.randomly_crop_and_resize(image, masks, boxes, keypoints, probability=0.9)
+        image, masks, keypoints = randomly_crop_and_resize(image, masks, boxes, keypoints, self.image_size, probability=0.9)
         image = random_color_manipulations(image, probability=0.5, grayscale_probability=0.1)
         image = random_pixel_value_scale(image, probability=0.1, minval=0.9, maxval=1.1)
         image, masks, keypoints = random_flip_left_right(image, masks, keypoints)
         return image, masks, keypoints
 
-    def randomly_crop_and_resize(self, image, masks, boxes, keypoints, probability=0.5):
 
-        height = tf.to_float(tf.shape(image)[0])
-        width = tf.to_float(tf.shape(image)[1])
-        scaler = tf.stack([height, width, height, width])
-        boxes /= scaler  # to the [0, 1] range
+def randomly_crop_and_resize(image, masks, boxes, keypoints, image_size, probability=0.5):
+    """
+    Arguments:
+        image: a float tensor with shape [height, width, 3].
+        masks: a float tensor with shape [height/DOWNSAMPLE, width/DOWNSAMPLE].
+        boxes: a float tensor with shape [num_boxes, 4].
+        keypoints: an int tensor with shape [num_persons, 17, 3]
+        image_size: a list with two integers [new_height, new_width].
+        probability: a float number.
+    Returns:
+        image: a float tensor with shape [new_height, new_width, 3].
+        masks: a float tensor with shape [new_height/DOWNSAMPLE, new_width/DOWNSAMPLE].
+        keypoints: an int tensor with shape [num_persons, 17, 3],
+            note that it has the same shape, but some points became not visible.
+    """
 
-        def crop(image, boxes):
-            image, _, window, _ = random_crop(
-                image, boxes,
-                min_object_covered=0.9,
-                aspect_ratio_range=(0.95, 1.05),
-                area_range=(0.5, 1.0),
-                overlap_threshold=0.3
-            )
-            return image, window
+    height = tf.to_float(tf.shape(image)[0])
+    width = tf.to_float(tf.shape(image)[1])
+    scaler = tf.stack([height, width, height, width])
+    boxes /= scaler  # to the [0, 1] range
 
-        whole_image_window = tf.constant([0.0, 0.0, 1.0, 1.0], dtype=tf.float32)
-
-        do_it = tf.less(tf.random_uniform([]), probability)
-        image, window = tf.cond(
-            do_it, lambda: crop(image, boxes),
-            lambda: (image, whole_image_window)
+    def crop(image, boxes):
+        image, _, window, _ = random_crop(
+            image, boxes,
+            min_object_covered=0.9,
+            aspect_ratio_range=(0.95, 1.05),
+            area_range=(0.5, 1.0),
+            overlap_threshold=0.3
         )
+        return image, window
 
-        # resize image
-        image = tf.image.resize_images(
-            image, [self.image_size, self.image_size],
-            method=RESIZE_METHOD
-        )
+    whole_image_window = tf.constant([0.0, 0.0, 1.0, 1.0], dtype=tf.float32)
 
-        # resize masks
-        masks_height = math.ceil(self.image_size/DOWNSAMPLE)
-        masks_width = math.ceil(self.image_size/DOWNSAMPLE)
-        masks = tf.image.crop_and_resize(
-            image=tf.expand_dims(masks, 0),
-            boxes=tf.expand_dims(window, 0),
-            box_ind=tf.constant([0], dtype=tf.int32),
-            crop_size=[masks_height, masks_width],
-            method='nearest'
-        )
-        masks = masks[0]
+    do_it = tf.less(tf.random_uniform([]), probability)
+    image, window = tf.cond(
+        do_it, lambda: crop(image, boxes),
+        lambda: (image, whole_image_window)
+    )
+    image = tf.image.resize_images(image, image_size, method=RESIZE_METHOD)
 
-        window *= scaler  # to absolute coordinates
+    # resize masks
+    masks_height = math.ceil(image_size[0]/DOWNSAMPLE)
+    masks_width = math.ceil(image_size[1]/DOWNSAMPLE)
+    masks = tf.image.crop_and_resize(
+        image=tf.expand_dims(masks, 0),
+        boxes=tf.expand_dims(window, 0),
+        box_ind=tf.constant([0], dtype=tf.int32),
+        crop_size=[masks_height, masks_width],
+        method='nearest'
+    )
+    masks = masks[0]
 
-        # now remove keypoints that are outside of the window
-        ymin, xmin, ymax, xmax = tf.unstack(window)
-        points, v = tf.split(keypoints, [2, 1], axis=2)
-        points = tf.to_float(points)
-        y, x = tf.unstack(points, axis=2)  # they have shape [num_persons, 17]
+    # to absolute coordinates
+    window *= scaler
 
-        coordinate_violations = tf.stack([
-            tf.greater_equal(y, ymax), tf.greater_equal(x, xmax),
-            tf.less_equal(y, ymin), tf.less_equal(x, xmin)
-        ], axis=2)  # shape [num_persons, 17, 4]
-        valid_indicator = tf.logical_not(tf.reduce_any(coordinate_violations, axis=2))
-        valid_indicator = tf.expand_dims(valid_indicator, 2)  # shape [num_persons, 17, 1]
-        v *= tf.to_int32(valid_indicator)
+    # now remove keypoints that are outside of the window
+    ymin, xmin, ymax, xmax = tf.unstack(window)
+    points, v = tf.split(keypoints, [2, 1], axis=2)
+    points = tf.to_float(points)
+    y, x = tf.unstack(points, axis=2)  # they have shape [num_persons, 17]
 
-        translation = tf.stack([ymin, xmin])  # translate coordinate system
-        scaler = tf.stack([tf.to_float(self.image_size)/(ymax - ymin), tf.to_float(self.image_size)/(xmax - xmin)])
+    coordinate_violations = tf.stack([
+        tf.greater_equal(y, ymax), tf.greater_equal(x, xmax),
+        tf.less_equal(y, ymin), tf.less_equal(x, xmin)
+    ], axis=2)  # shape [num_persons, 17, 4]
+    valid_indicator = tf.logical_not(tf.reduce_any(coordinate_violations, axis=2))
+    valid_indicator = tf.expand_dims(valid_indicator, 2)  # shape [num_persons, 17, 1]
+    v *= tf.to_int32(valid_indicator)
 
-        points = tf.to_int32(tf.round(scaler * (points - translation)))
-        y, x = tf.unstack(points, axis=2)
-        y = tf.clip_by_value(y, 0, self.image_size - 1)
-        x = tf.clip_by_value(x, 0, self.image_size - 1)
-        keypoints = tf.concat([tf.stack([y, x], axis=2), v], axis=2)
+    translation = tf.stack([ymin, xmin])  # translate coordinate system
+    scaler = tf.stack([tf.to_float(image_size[0])/(ymax - ymin), tf.to_float(image_size[1])/(xmax - xmin)])
 
-        return image, masks, keypoints
+    points = tf.to_int32(tf.round(scaler * (points - translation)))
+    y, x = tf.unstack(points, axis=2)
+    y = tf.clip_by_value(y, 0, image_size[0] - 1)
+    x = tf.clip_by_value(x, 0, image_size[1] - 1)
+    keypoints = tf.concat([tf.stack([y, x], axis=2), v], axis=2)
+
+    return image, masks, keypoints
 
 
 def random_flip_left_right(image, masks, keypoints):

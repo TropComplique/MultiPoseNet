@@ -4,7 +4,7 @@ from detector.constants import EPSILON
 
 
 def random_crop(
-        image_as_string, boxes, min_object_covered=0.9,
+        image, boxes, min_object_covered=0.9,
         aspect_ratio_range=(0.75, 1.33), area_range=(0.5, 1.0),
         overlap_thresh=0.3):
     """Performs random crop. Given the input image and its bounding boxes,
@@ -15,7 +15,7 @@ def random_crop(
     form (e.g., lie in the unit square [0, 1]).
 
     Arguments:
-        image_as_string: a string tensor with shape [].
+        image: a float tensor with shape [height, width, 3].
         boxes: a float tensor containing bounding boxes. It has shape
             [num_boxes, 4]. Boxes are in normalized form, meaning
             their coordinates vary between [0, 1].
@@ -28,8 +28,7 @@ def random_crop(
         overlap_thresh: minimum overlap thresh with new cropped
             image to keep the box.
     Returns:
-        image: cropped image, a float tensor with shape [None, None, 3],
-            with pixel values varying between [0, 1].
+        image: cropped image, a float tensor with shape [None, None, 3].
         boxes: remaining boxes.
         window: a float tensor with shape [4].
         keep_indices: indices of remaining boxes in input boxes tensor.
@@ -37,7 +36,7 @@ def random_crop(
     with tf.name_scope('random_crop_image'):
 
         sample_distorted_bounding_box = tf.image.sample_distorted_bounding_box(
-            tf.image.extract_jpeg_shape(image_as_string),
+            tf.shape(image),
             bounding_boxes=tf.expand_dims(boxes, 0),
             min_object_covered=min_object_covered,
             aspect_ratio_range=aspect_ratio_range,
@@ -46,11 +45,9 @@ def random_crop(
             use_image_if_no_bounding_boxes=True
         )
         begin, size, window = sample_distorted_bounding_box
+        image = tf.slice(image, begin, size)
+        image.set_shape([None, None, 3])
         window = tf.squeeze(window, axis=[0, 1])
-
-        crop_window = tf.concat([begin[:2], size[:2]], axis=0)
-        image = tf.image.decode_and_crop_jpeg(image_as_string, crop_window, channels=3)
-        image = tf.image.convert_image_dtype(image, tf.float32)
 
         # remove boxes that are completely outside the cropped image
         boxes, inside_window_ids = prune_completely_outside_window(boxes, window)
