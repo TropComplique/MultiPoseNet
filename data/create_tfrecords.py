@@ -40,7 +40,7 @@ DOWNSAMPLE = 4
 
 # we don't use poorly visible persons
 MIN_NUM_KEYPOINTS = 2
-MIN_BOX_SIDE = 8
+MIN_BOX_SIDE = 5
 
 
 def to_tf_example(image_path, annotations, coco):
@@ -193,7 +193,7 @@ def convert(coco, image_dir, result_path, num_shards):
 
         image_metadata = coco.loadImgs(example)[0]
         image_path = os.path.join(image_dir, image_metadata['file_name'])
-        annIds = coco.getAnnIds(imgIds=image_metadata['id'], catIds=catIds, iscrowd=True)
+        annIds = coco.getAnnIds(imgIds=image_metadata['id'], catIds=catIds, iscrowd=None)
         annotations = coco.loadAnns(annIds)
 
         tf_example = to_tf_example(image_path, annotations, coco)

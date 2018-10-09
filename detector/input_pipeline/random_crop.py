@@ -6,7 +6,7 @@ from detector.constants import EPSILON
 def random_crop(
         image, boxes, min_object_covered=0.9,
         aspect_ratio_range=(0.75, 1.33), area_range=(0.5, 1.0),
-        overlap_thresh=0.3):
+        overlap_threshold=0.3):
     """Performs random crop. Given the input image and its bounding boxes,
     this op randomly crops a subimage.  Given a user-provided set of input constraints,
     the crop window is resampled until it satisfies these constraints.
@@ -25,7 +25,7 @@ def random_crop(
         aspect_ratio_range: allowed range for aspect ratio of cropped image.
         area_range: allowed range for area ratio between cropped image and the
             original image.
-        overlap_thresh: minimum overlap thresh with new cropped
+        overlap_threshold: minimum overlap thresh with new cropped
             image to keep the box.
     Returns:
         image: cropped image, a float tensor with shape [None, None, 3].
@@ -55,7 +55,7 @@ def random_crop(
         # remove boxes that are too much outside the cropped image
         boxes, keep_indices = prune_non_overlapping_boxes(
             boxes, tf.expand_dims(window, 0),
-            min_overlap=overlap_thresh
+            min_overlap=overlap_threshold
         )
 
         # change coordinates of the remaining boxes

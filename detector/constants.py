@@ -1,6 +1,6 @@
 import tensorflow as tf
 
-
+DIVISOR = 128
 BATCH_NORM_MOMENTUM = 0.997
 BATCH_NORM_EPSILON = 1e-5
 DATA_FORMAT = 'channels_first'
@@ -19,7 +19,7 @@ SCALE_FACTORS = [10.0, 10.0, 5.0, 5.0]
 # you need to tweak these numbers for your system,
 # it can accelerate training
 SHUFFLE_BUFFER_SIZE = 10000
-NUM_THREADS = 12
+NUM_PARALLEL_CALLS = 12
 
 # images are resized before feeding them to the network
 RESIZE_METHOD = tf.image.ResizeMethod.BILINEAR

@@ -1,6 +1,6 @@
 import tensorflow as tf
 import math
-from detector.constants import SHUFFLE_BUFFER_SIZE, NUM_THREADS, RESIZE_METHOD, DOWNSAMPLE
+from detector.constants import SHUFFLE_BUFFER_SIZE, NUM_PARALLEL_CALLS, RESIZE_METHOD, DOWNSAMPLE, DIVISOR
 from .random_crop import random_crop
 from .random_rotation import random_rotation
 from .color_augmentations import random_color_manipulations, random_pixel_value_scale
@@ -12,7 +12,7 @@ from .heatmap_creation import get_heatmaps
 
 
 class KeypointPipeline:
-    def __init__(self, filenames, batch_size, is_training, image_size):
+    def __init__(self, filenames, is_training, params):
         """
         During the evaluation we resize images keeping aspect ratio.
 
@@ -55,8 +55,8 @@ class KeypointPipeline:
         dataset = dataset.flat_map(tf.data.TFRecordDataset)
         dataset = dataset.prefetch(buffer_size=batch_size)
 
-        if is_training:
-            dataset = dataset.shuffle(buffer_size=SHUFFLE_BUFFER_SIZE)
+        #if is_training:
+        dataset = dataset.shuffle(buffer_size=SHUFFLE_BUFFER_SIZE)
         dataset = dataset.repeat(None if is_training else 1)
         dataset = dataset.map(self._parse_and_preprocess, num_parallel_calls=NUM_PARALLEL_CALLS)
 
@@ -73,8 +73,7 @@ class KeypointPipeline:
         Returns:
             image: a float tensor with shape [image_height, image_width, 3],
                 an RGB image with pixel values in the range [0, 1].
-            heatmaps: a float tensor with shape [downsampled_height, downsampled_width, 18].
-            loss_mask: a float binary tensor with shape [downsampled_height, downsampled_width].
+            heatmaps_and_masks: a float tensor with shape [downsampled_height, downsampled_width, 19].
 
             where `downsampled_height = image_height/downsample`
             and `downsampled_width = image_width/downsample`.
@@ -126,11 +125,31 @@ class KeypointPipeline:
 
         if self.is_training:
             image, masks, keypoints = self.augmentation(image, masks, boxes, keypoints)
-            image_height, image_width = self.image_size, self.image_size
         else:
+            original_image_height = tf.shape(image)[0]
+            original_image_width = tf.shape(image)[1]
             image, _ = resize_keeping_aspect_ratio(image, self.min_dimension, DIVISOR)
+            
+            # TODO
+            masks, _ = resize_keeping_aspect_ratio(
+                masks, math.ceil(self.min_dimension/DOWNSAMPLE), 
+                math.ceil(DIVISOR/DOWNSAMPLE)
+            )
+            image = tf.image.resize_images(image, [h, w], method=tf.image.ResizeMethod.NEAREST_NEIGHBOR)
 
-        sigma = 1.0
+            image_height = tf.shape(image)[0]
+            image_width = tf.shape(image)[1]
+            scaler = tf.to_float(tf.stack([image_height/original_image_height, image_width/original_image_width]))
+            points, v = tf.split(keypoints, [2, 1], axis=2)
+            points = tf.to_int32(tf.round(tf.to_float(points) * scaler))
+            y, x = tf.unstack(points, axis=2)
+            y = tf.clip_by_value(y, 0, image_height - 1)
+            x = tf.clip_by_value(x, 0, image_width - 1)
+            keypoints = tf.concat([tf.stack([y, x], axis=2), v], axis=2)
+ 
+        image_height = tf.shape(image)[0]
+        image_width = tf.shape(image)[1]
+        sigma = 2.0
         heatmaps = tf.py_func(
             lambda k, w, h: get_heatmaps(k, DOWNSAMPLE, sigma, w, h),
             [tf.to_float(keypoints), image_width, image_height],
@@ -138,14 +157,14 @@ class KeypointPipeline:
         )
 
         if self.is_training:
-            heatmaps_height = math.ceil(self.image_size/DOWNSAMPLE)
-            heatmaps_width = math.ceil(self.image_size/DOWNSAMPLE)
+            heatmaps_height = math.ceil(self.image_size[0]/DOWNSAMPLE)
+            heatmaps_width = math.ceil(self.image_size[1]/DOWNSAMPLE)
             heatmaps.set_shape([heatmaps_height, heatmaps_width, 17])
         else:
             heatmaps.set_shape([None, None, 17])
 
         features = {'images': image}
-        labels = {'heatmaps': heatmaps, 'masks': masks}
+        labels = {'heatmaps_and_masks': tf.concat([heatmaps, masks], axis=2)}
         return features, labels
 
     def augmentation(self, image, masks, boxes, keypoints):

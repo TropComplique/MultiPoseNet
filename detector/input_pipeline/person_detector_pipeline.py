@@ -1,5 +1,5 @@
 import tensorflow as tf
-from detector.constants import SHUFFLE_BUFFER_SIZE, NUM_THREADS, RESIZE_METHOD, DIVISOR
+from detector.constants import SHUFFLE_BUFFER_SIZE, NUM_PARALLEL_CALLS, RESIZE_METHOD, DIVISOR
 from .random_crop import random_crop
 from .color_augmentations import random_color_manipulations, random_pixel_value_scale
 
