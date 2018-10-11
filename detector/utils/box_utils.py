@@ -140,34 +140,3 @@ def decode(codes, anchors):
         ymin, xmin = ycenter - 0.5*h, xcenter - 0.5*w
         ymax, xmax = ycenter + 0.5*h, xcenter + 0.5*w
         return tf.stack([ymin, xmin, ymax, xmax], axis=1)
-
-
-def batch_decode(box_encodings, anchors):
-    """Decodes a batch of box encodings with respect to anchors.
-
-    Arguments:
-        box_encodings: a float tensor with shape [batch_size, num_anchors, 4].
-        anchors: a float tensor with shape [num_anchors, 4].
-    Returns:
-        a float tensor with shape [batch_size, num_anchors, 4].
-    """
-    with tf.name_scope('batch_decode'):
-
-        # batch size is a dynamic value
-        batch_size = tf.shape(box_encodings)[0]
-
-        # number of anchors depends on the image size (it is a dynamic value)
-        num_anchors = tf.shape(anchors)[0]
-
-        tiled_anchor_boxes = tf.tile(
-            tf.expand_dims(anchors, 0),
-            [batch_size, 1, 1]
-        )  # shape [batch_size, num_anchors, 4]
-        decoded_boxes = decode(
-            tf.reshape(box_encodings, [-1, 4]),
-            tf.reshape(tiled_anchor_boxes, [-1, 4])
-        )  # shape [batch_size * num_anchors, 4]
-
-        decoded_boxes = tf.reshape(decoded_boxes, [batch_size, num_anchors, 4])
-        decoded_boxes = tf.clip_by_value(decoded_boxes, 0.0, 1.0)
-        return decoded_boxes

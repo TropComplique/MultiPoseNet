@@ -56,9 +56,10 @@ def block(x, is_training, num_filters, num_units, stride):
 def bottleneck(x, is_training, num_filters, stride=1, rate=1, use_projection=False):
 
     shortcut = x
+    num_output_channels = 4 * num_filters
 
     if use_projection:
-        shortcut = conv2d_same(shortcut, 4 * num_filters, kernel_size=1, stride=stride)
+        shortcut = conv2d_same(shortcut, num_output_channels, kernel_size=1, stride=stride)
         shortcut = batch_norm_relu(shortcut, is_training, use_relu=False)
 
     x = conv2d_same(x, num_filters, kernel_size=1)
@@ -67,7 +68,7 @@ def bottleneck(x, is_training, num_filters, stride=1, rate=1, use_projection=Fal
     x = conv2d_same(x, num_filters, kernel_size=3, stride=stride, rate=rate)
     x = batch_norm_relu(x, is_training)
 
-    x = conv2d_same(x, 4 * num_filters, kernel_size=1)
+    x = conv2d_same(x, num_output_channels, kernel_size=1)
     x = batch_norm_relu(x, is_training, use_relu=False)
 
     x += shortcut

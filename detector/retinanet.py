@@ -1,5 +1,4 @@
 import tensorflow as tf
-
 from .constants import PARALLEL_ITERATIONS, POSITIVES_THRESHOLD, NEGATIVES_THRESHOLD
 from .utils import batch_non_max_suppression
 from .training_target_creation import get_training_targets
@@ -23,12 +22,9 @@ class RetinaNet:
         features = backbone(images, is_training)
 
         enriched_features = fpn(
-            features, is_training, depth, min_level=3,
+            features, is_training, depth=256, min_level=3,
             add_coarse_features=True, scope='fpn'
         )
-        enriched_features = [enriched_features['p' + str(i)] for i in range(3, 8)]
-        # `enriched_features` a list of float tensors where the ith tensor
-        # has shape [batch_size, channels_i, height_i, width_i].
 
         # the detector supports images of various sizes
         shape = tf.shape(images)
@@ -44,14 +40,15 @@ class RetinaNet:
         num_anchors_per_location = anchor_generator.num_anchors_per_location
 
         self.raw_predictions = retinanet_box_predictor(
-            enriched_features, is_training,
-            num_anchors_per_location=6, depth=256, min_level=3
+            [enriched_features['p' + str(i)] for i in range(3, 8)],
+            is_training, num_anchors_per_location=num_anchors_per_location,
+            depth=256, min_level=3
         )
-        # a dict with two float tensors:
+        # it returns a dict with two float tensors:
         # `encoded_boxes` has shape [batch_size, num_anchors, 4],
         # `class_predictions` has shape [batch_size, num_anchors]
 
-    def get_predictions(self, score_threshold=0.05, iou_threshold=0.5, max_detections=20):
+    def get_predictions(self, score_threshold=0.05, iou_threshold=0.5, max_detections=25):
         """Postprocess outputs of the network.
 
         Returns:

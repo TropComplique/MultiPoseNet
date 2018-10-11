@@ -13,7 +13,7 @@ def retinanet_box_predictor(image_features, is_training, num_anchors_per_locatio
         image_features: a list of float tensors where the ith tensor
             has shape [batch_size, channels_i, height_i, width_i].
         is_training: a boolean.
-        depth, min_level, num_anchors_per_location: integers.
+        num_anchors_per_location, depth, min_level: integers.
     Returns:
         encoded_boxes: a float tensor with shape [batch_size, num_anchors, 4].
         class_predictions: a float tensor with shape [batch_size, num_anchors].

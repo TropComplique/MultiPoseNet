@@ -1,5 +1,5 @@
 import tensorflow as tf
-from detector.utils import conv2d_same, batch_norm_relu
+from .utils import conv2d_same, batch_norm_relu
 from .constants import DATA_FORMAT
 
 
