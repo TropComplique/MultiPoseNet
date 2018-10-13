@@ -2,6 +2,7 @@ import tensorflow as tf
 from detector import RetinaNet
 from detector.backbones import mobilenet_v1, resnet
 from metrics import Evaluator
+from keypoints_model import add_weight_decay
 
 
 MOVING_AVERAGE_DECAY = 0.993

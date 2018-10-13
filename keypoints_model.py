@@ -1,7 +1,7 @@
 import tensorflow as tf
 from detector import KeypointSubnet
 from detector.backbones import mobilenet_v1, resnet
-from detector.constants import MOVING_AVERAGE_DECAY
+from detector.constants import MOVING_AVERAGE_DECAY, DATA_FORMAT
 
 
 def model_fn(features, labels, mode, params):
@@ -32,10 +32,6 @@ def model_fn(features, labels, mode, params):
         predictions = subnet.get_predictions()
 
     if mode == tf.estimator.ModeKeys.PREDICT:
-
-        box_scaler = features['box_scaler']
-        predictions['boxes'] /= box_scaler
-
         export_outputs = tf.estimator.export.PredictOutput({
             name: tf.identity(tensor, name)
             for name, tensor in predictions.items()
@@ -50,19 +46,25 @@ def model_fn(features, labels, mode, params):
         add_weight_decay(params['weight_decay'])
         regularization_loss = tf.losses.get_regularization_loss()
 
-    t = groundtruth_heatmaps
-
     with tf.name_scope('losses'):
 
-        losses = {'regression_loss': tf.nn.l2_loss(subnet.heatmaps - t)}
+        heatmaps = labels['heatmaps']
+        segmentation_masks = labels['segmentation_masks']
+        loss_masks = labels['loss_masks']
+
+        loss_masks = tf.expand_dims(loss_masks, 3)
+        heatmaps = tf.concat([heatmaps, tf.expand_dims(segmentation_masks, 3)], axis=3)
+        losses = {'regression_loss': tf.nn.l2_loss(loss_masks * (subnet.heatmaps - heatmaps))}
 
         for level in range(2, 6):
             p = subnet.enriched_features['p' + str(i)]
             f = p[:, :, :, :18]
-            upsample = 2**(2 - level)
-            new_size = [upsample * height, upsample * width]
-            x = tf.image.resize_bilinear(x, new_size, align_corners=True)
-            tf.nn.l2_loss(f - t)
+            upsample = 2**(level - 2)
+            new_size = [tf.to_int32(tf.ceil(height/2)), tf.to_int32(tf.ceil(width/2))]
+            losses['' + str(level)]tf.nn.l2_loss(f - t)
+            segmentation_masks = tf.image.resize_bilinear(
+                segmentation_masks, new_size, align_corners=True
+            )
 
     tf.losses.add_loss(params['localization_loss_weight'] * losses['localization_loss'])
     tf.losses.add_loss(params['classification_loss_weight'] * losses['classification_loss'])

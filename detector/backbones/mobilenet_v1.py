@@ -1,6 +1,10 @@
 import tensorflow as tf
 import tensorflow.contrib.slim as slim
-from detector.constants import BATCH_NORM_MOMENTUM, BATCH_NORM_EPSILON, DATA_FORMAT
+from detector.constants import DATA_FORMAT
+
+
+BATCH_NORM_MOMENTUM = 0.97
+BATCH_NORM_EPSILON = 1e-3
 
 
 def mobilenet_v1(images, is_training, depth_multiplier=1.0):

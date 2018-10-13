@@ -48,11 +48,6 @@ def fpn(features, is_training, depth, min_level=3, add_coarse_features=True, sco
             p = conv2d_same(x, depth, kernel_size=3, name='p' + i)
             enriched_features['p' + i] = p
 
-        enriched_features = {
-            n: batch_norm_relu(x, is_training, use_relu=False, name=n + '_batch_norm')
-            for n, x in enriched_features.items()
-        }
-
     return enriched_features
 
 

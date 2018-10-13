@@ -4,7 +4,6 @@ from detector.constants import SHUFFLE_BUFFER_SIZE, NUM_PARALLEL_CALLS, RESIZE_M
 from .random_crop import random_crop
 from .random_rotation import random_rotation
 from .color_augmentations import random_color_manipulations, random_pixel_value_scale
-from .person_detector_pipeline import resize_keeping_aspect_ratio
 from .heatmap_creation import get_heatmaps
 
 
@@ -55,8 +54,8 @@ class KeypointPipeline:
         dataset = dataset.flat_map(tf.data.TFRecordDataset)
         dataset = dataset.prefetch(buffer_size=batch_size)
 
-        #if is_training:
-        dataset = dataset.shuffle(buffer_size=SHUFFLE_BUFFER_SIZE)
+        if is_training:
+            dataset = dataset.shuffle(buffer_size=SHUFFLE_BUFFER_SIZE)
         dataset = dataset.repeat(None if is_training else 1)
         dataset = dataset.map(self._parse_and_preprocess, num_parallel_calls=NUM_PARALLEL_CALLS)
 
@@ -126,30 +125,19 @@ class KeypointPipeline:
         if self.is_training:
             image, masks, keypoints = self.augmentation(image, masks, boxes, keypoints)
         else:
-            original_image_height = tf.shape(image)[0]
-            original_image_width = tf.shape(image)[1]
-            image, _ = resize_keeping_aspect_ratio(image, self.min_dimension, DIVISOR)
-            
-            # TODO
-            masks, _ = resize_keeping_aspect_ratio(
-                masks, math.ceil(self.min_dimension/DOWNSAMPLE), 
-                math.ceil(DIVISOR/DOWNSAMPLE)
-            )
-            image = tf.image.resize_images(image, [h, w], method=tf.image.ResizeMethod.NEAREST_NEIGHBOR)
-
+            image, masks, keypoint_scaler = resize_keeping_aspect_ratio(image, masks, self.min_dimension, DIVISOR)
             image_height = tf.shape(image)[0]
             image_width = tf.shape(image)[1]
-            scaler = tf.to_float(tf.stack([image_height/original_image_height, image_width/original_image_width]))
             points, v = tf.split(keypoints, [2, 1], axis=2)
-            points = tf.to_int32(tf.round(tf.to_float(points) * scaler))
+            points = tf.to_int32(tf.round(tf.to_float(points) * keypoint_scaler))
             y, x = tf.unstack(points, axis=2)
             y = tf.clip_by_value(y, 0, image_height - 1)
             x = tf.clip_by_value(x, 0, image_width - 1)
             keypoints = tf.concat([tf.stack([y, x], axis=2), v], axis=2)
- 
+
         image_height = tf.shape(image)[0]
         image_width = tf.shape(image)[1]
-        sigma = 2.0
+        sigma = 1.5
         heatmaps = tf.py_func(
             lambda k, w, h: get_heatmaps(k, DOWNSAMPLE, sigma, w, h),
             [tf.to_float(keypoints), image_width, image_height],
@@ -163,8 +151,15 @@ class KeypointPipeline:
         else:
             heatmaps.set_shape([None, None, 17])
 
+        loss_mask = masks[:, :, 0]
+        segmentation_mask = masks[:, :, 1]
+
         features = {'images': image}
-        labels = {'heatmaps_and_masks': tf.concat([heatmaps, masks], axis=2)}
+        labels = {
+            'heatmaps': heatmaps,
+            'segmentation_masks': segmentation_mask,
+            'loss_masks': loss_mask
+        }
         return features, labels
 
     def augmentation(self, image, masks, boxes, keypoints):
@@ -293,3 +288,71 @@ def random_flip_left_right(image, masks, keypoints):
             lambda: (image, masks, keypoints)
         )
         return image, masks, keypoints
+
+
+def resize_keeping_aspect_ratio(image, masks, min_dimension, divisor):
+    """
+    This function resizes and possibly pads with zeros.
+    When using a usual FPN, divisor must be equal to 128.
+
+    Arguments:
+        image: a float tensor with shape [height, width, 3].
+        masks: a float tensor with shape [height/DOWNSAMPLE, width/DOWNSAMPLE, 2].
+        min_dimension: an integer.
+        divisor: an integer.
+    Returns:
+        image: a float tensor with shape [new_height, new_width, 3],
+            where `min_dimension = min(new_height, new_width)`,
+            `new_height` and `new_width` are divisible by `divisor`.
+        masks: a float tensor with shape [new_height/DOWNSAMPLE, new_width/DOWNSAMPLE, 2].
+        keypoint_scaler: a float tensor with shape [2].
+    """
+    assert min_dimension % divisor == 0
+
+    min_dimension = tf.constant(min_dimension, dtype=tf.int32)
+    divisor = tf.constant(divisor, dtype=tf.int32)
+
+    shape = tf.shape(image)
+    height, width = shape[0], shape[1]
+
+    original_min_dim = tf.minimum(height, width)
+    scale_factor = tf.to_float(min_dimension / original_min_dim)
+
+    def scale(x):
+        unpadded_x = tf.to_int32(tf.round(tf.to_float(x) * scale_factor))
+        x = tf.to_int32(tf.ceil(unpadded_x / divisor))
+        pad = divisor * x - unpadded_x
+        return (unpadded_x, pad)
+
+    zero = tf.constant(0, dtype=tf.int32)
+    new_height, pad_height, new_width, pad_width = tf.cond(
+        tf.greater_equal(height, width),
+        lambda: scale(height) + (min_dimension, zero),
+        lambda: (min_dimension, zero) + scale(width)
+    )
+
+    # resize keeping aspect ratio
+    image = tf.image.resize_images(image, [new_height, new_width], method=RESIZE_METHOD)
+
+    new_height2, new_width2 = tf.to_int32(tf.ceil(new_height/DOWNSAMPLE)), tf.to_int32(tf.ceil(new_width/DOWNSAMPLE))
+    masks = tf.image.resize_images(masks, [new_height2, new_width2], method=tf.image.ResizeMethod.NEAREST_NEIGHBOR)
+
+    image = tf.image.pad_to_bounding_box(
+        image, offset_height=0, offset_width=0,
+        target_height=new_height + pad_height,
+        target_width=new_width + pad_width
+    )
+    # it pads image at the bottom or at the right
+
+    pad_height2, pad_width2 = tf.to_int32(tf.ceil(pad_height/DOWNSAMPLE)), tf.to_int32(tf.ceil(pad_width/DOWNSAMPLE))
+    masks = tf.image.pad_to_bounding_box(
+        masks, offset_height=0, offset_width=0,
+        target_height=new_height2 + pad_height2,
+        target_width=new_width2 + pad_width2
+    )
+
+    keypoint_scaler = tf.to_float(tf.stack([
+        new_height/height, new_width/width
+    ]))
+
+    return image, masks, keypoint_scaler

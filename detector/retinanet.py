@@ -22,9 +22,13 @@ class RetinaNet:
         features = backbone(images, is_training)
 
         enriched_features = fpn(
-            features, is_training, depth=256, min_level=3,
+            features, is_training, depth=128, min_level=3,
             add_coarse_features=True, scope='fpn'
         )
+        enriched_features = {
+            n: batch_norm_relu(x, is_training, use_relu=False, name=n + '_batch_norm')
+            for n, x in enriched_features.items()
+        }
 
         # the detector supports images of various sizes
         shape = tf.shape(images)
@@ -42,7 +46,7 @@ class RetinaNet:
         self.raw_predictions = retinanet_box_predictor(
             [enriched_features['p' + str(i)] for i in range(3, 8)],
             is_training, num_anchors_per_location=num_anchors_per_location,
-            depth=256, min_level=3
+            depth=64, min_level=3
         )
         # it returns a dict with two float tensors:
         # `encoded_boxes` has shape [batch_size, num_anchors, 4],

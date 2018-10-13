@@ -1,6 +1,6 @@
 import tensorflow as tf
 from .fpn import fpn
-from .constants import NUM_KEYPOINTS
+from .constants import NUM_KEYPOINTS, DATA_FORMAT
 
 
 class KeypointSubnet:
@@ -18,16 +18,20 @@ class KeypointSubnet:
         features = backbone(images, is_training)
 
         self.enriched_features = fpn(
-            features, is_training, depth=256, min_level=2,
+            features, is_training, depth=128, min_level=2,
             add_coarse_features=False, scope='keypoint_fpn'
         )
+        enriched_features = {
+            n: batch_norm_relu(x, is_training, use_relu=False, name=n + '_batch_norm')
+            for n, x in enriched_features.items()
+        }
         # it is a dict with keys ['p2', 'p3', 'p4', 'p5']
 
         upsampled_features = []
         with tf.variable_scope('phi_subnet', reuse=tf.AUTO_REUSE):
             for level in range(2, 6):
                 x = self.enriched_features['p' + str(level)]
-                upsample = 2**(2 - level)
+                upsample = 2**(level - 2)
                 upsampled_features.append(phi_subnet(x, is_training, upsample, depth=128))
 
         upsampled_features = tf.concat(upsampled_features, axis=1 if DATA_FORMAT == 'channels_first' else 3)
@@ -67,12 +71,15 @@ def phi_subnet(x, is_training, upsample, depth=128):
     x = conv2d_same(x, depth, kernel_size=3, name='conv2')
     x = batch_norm_relu(x, is_training, name='bn2)
 
-    shape = tf.shape(x)
     if DATA_FORMAT == 'channels_first':
-        height, width = shape[2], shape[3]
-    else:
-        height, width = shape[1], shape[2]
+        x = tf.transpose(x, [0, 2, 3, 1])
 
+    shape = tf.shape(x)
+    height, width = shape[1], shape[2]
     new_size = [upsample * height, upsample * width]
     x = tf.image.resize_bilinear(x, new_size, align_corners=True)
+
+    if DATA_FORMAT == 'channels_first':
+        x = tf.transpose(x, [0, 3, 1, 2])
+
     return x

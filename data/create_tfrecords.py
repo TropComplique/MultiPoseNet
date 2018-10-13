@@ -17,6 +17,9 @@ from pycocotools.coco import COCO
 
 
 """
+This script creates training and validation data for
+person detection and keypoint heatmap regression.
+
 Just run:
 python create_tfrecords.py
 

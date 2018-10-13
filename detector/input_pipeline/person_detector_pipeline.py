@@ -128,7 +128,7 @@ def randomly_crop_and_resize(image, boxes, image_size, probability=0.9):
             image, boxes,
             min_object_covered=0.9,
             aspect_ratio_range=(0.85, 1.15),
-            area_range=(0.33, 1.0),
+            area_range=(0.6, 1.0),
             overlap_threshold=0.4
         )
         return image, boxes
