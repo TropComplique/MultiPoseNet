@@ -69,7 +69,7 @@ def phi_subnet(x, is_training, upsample, depth=128):
     x = conv2d_same(x, depth, kernel_size=3, name='conv1')
     x = batch_norm_relu(x, is_training, name='bn1')
     x = conv2d_same(x, depth, kernel_size=3, name='conv2')
-    x = batch_norm_relu(x, is_training, name='bn2)
+    x = batch_norm_relu(x, is_training, name='bn2')
 
     if DATA_FORMAT == 'channels_first':
         x = tf.transpose(x, [0, 2, 3, 1])
