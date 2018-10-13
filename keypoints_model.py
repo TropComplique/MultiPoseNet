@@ -45,6 +45,7 @@ def model_fn(features, labels, mode, params):
     with tf.name_scope('weight_decay'):
         add_weight_decay(params['weight_decay'])
         regularization_loss = tf.losses.get_regularization_loss()
+        tf.summary.scalar('regularization_loss', regularization_loss)
 
     with tf.name_scope('losses'):
 
@@ -58,28 +59,24 @@ def model_fn(features, labels, mode, params):
 
         for level in range(2, 6):
             p = subnet.enriched_features['p' + str(i)]
-            f = p[:, :, :, :18]
-            upsample = 2**(level - 2)
+            f = p[:, :, :, 0]
+            losses['segmentation_loss_at_level_' + str(level)] = tf.nn.l2_loss(f - segmentation_masks)
+            shape = tf.shape(segmentation_masks)
+            height, width = shape[1], shape[2]
             new_size = [tf.to_int32(tf.ceil(height/2)), tf.to_int32(tf.ceil(width/2))]
-            losses['' + str(level)]tf.nn.l2_loss(f - t)
             segmentation_masks = tf.image.resize_bilinear(
                 segmentation_masks, new_size, align_corners=True
             )
 
-    tf.losses.add_loss(params['localization_loss_weight'] * losses['localization_loss'])
-    tf.losses.add_loss(params['classification_loss_weight'] * losses['classification_loss'])
-    tf.summary.scalar('regularization_loss', regularization_loss)
-    tf.summary.scalar('localization_loss', losses['localization_loss'])
-    tf.summary.scalar('classification_loss', losses['classification_loss'])
+    for n, v in losses.items():
+        tf.losses.add_loss(v)
+        tf.summary.scalar(n, v)
+
     total_loss = tf.losses.get_total_loss(add_regularization_losses=True)
 
     if mode == tf.estimator.ModeKeys.EVAL:
 
-        batch_size = features['images'].shape[0].value
-        assert batch_size == 1
-
-        evaluator = Evaluator(num_classes=params['num_classes'])
-        eval_metric_ops = evaluator.get_metric_ops(labels, predictions)
+        eval_metric_ops = {'regression_loss': tf.metrics.mean(losses['regression_loss'])}
 
         return tf.estimator.EstimatorSpec(
             mode, loss=total_loss,

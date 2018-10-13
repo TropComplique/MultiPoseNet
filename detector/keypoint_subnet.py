@@ -21,16 +21,16 @@ class KeypointSubnet:
             features, is_training, depth=128, min_level=2,
             add_coarse_features=False, scope='keypoint_fpn'
         )
-        enriched_features = {
+        normalized_enriched_features = {
             n: batch_norm_relu(x, is_training, use_relu=False, name=n + '_batch_norm')
-            for n, x in enriched_features.items()
+            for n, x in self.enriched_features.items()
         }
         # it is a dict with keys ['p2', 'p3', 'p4', 'p5']
 
         upsampled_features = []
         with tf.variable_scope('phi_subnet', reuse=tf.AUTO_REUSE):
             for level in range(2, 6):
-                x = self.enriched_features['p' + str(level)]
+                x = normalized_enriched_features['p' + str(level)]
                 upsample = 2**(level - 2)
                 upsampled_features.append(phi_subnet(x, is_training, upsample, depth=128))
 
