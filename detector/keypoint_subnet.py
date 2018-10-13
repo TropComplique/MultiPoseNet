@@ -1,6 +1,8 @@
 import tensorflow as tf
 from .fpn import fpn
+import math
 from .constants import NUM_KEYPOINTS, DATA_FORMAT
+from .utils import batch_norm_relu, conv2d_same
 
 
 class KeypointSubnet:

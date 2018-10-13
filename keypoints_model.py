@@ -51,20 +51,21 @@ def model_fn(features, labels, mode, params):
 
         heatmaps = labels['heatmaps']
         segmentation_masks = labels['segmentation_masks']
+        segmentation_masks = tf.expand_dims(segmentation_masks, 3)
         loss_masks = labels['loss_masks']
 
         loss_masks = tf.expand_dims(loss_masks, 3)
-        heatmaps = tf.concat([heatmaps, tf.expand_dims(segmentation_masks, 3)], axis=3)
+        heatmaps = tf.concat([heatmaps, segmentation_masks], axis=3)
         losses = {'regression_loss': tf.nn.l2_loss(loss_masks * (subnet.heatmaps - heatmaps))}
 
         for level in range(2, 6):
-            p = subnet.enriched_features['p' + str(i)]
-            f = p[:, :, :, 0]
+            p = subnet.enriched_features['p' + str(level)]
+            f = tf.expand_dims(p[:, 0, :, :], 3)
             losses['segmentation_loss_at_level_' + str(level)] = tf.nn.l2_loss(f - segmentation_masks)
             shape = tf.shape(segmentation_masks)
             height, width = shape[1], shape[2]
             new_size = [tf.to_int32(tf.ceil(height/2)), tf.to_int32(tf.ceil(width/2))]
-            segmentation_masks = tf.image.resize_bilinear(
+            segmentation_masks = tf.image.resize_images(
                 segmentation_masks, new_size, align_corners=True
             )
 
@@ -87,7 +88,7 @@ def model_fn(features, labels, mode, params):
     with tf.variable_scope('learning_rate'):
         global_step = tf.train.get_global_step()
         # learning_rate = tf.train.piecewise_constant(global_step, params['lr_boundaries'], params['lr_values'])
-        learning_rate = tf.train.cosine_decay(0.005, global_step, decay_steps=150000)
+        learning_rate = tf.train.cosine_decay(0.005, global_step, decay_steps=90000)
         tf.summary.scalar('learning_rate', learning_rate)
 
     update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)

@@ -1,14 +1,42 @@
 import os
 import tensorflow as tf
 import json
-from model import model_fn, RestoreMovingAverageHook
-from detector.input_pipeline import Pipeline
+from keypoints_model import model_fn, RestoreMovingAverageHook
+from detector.input_pipeline import KeypointPipeline as Pipeline
 tf.logging.set_verbosity('INFO')
 
 
-GPU_TO_USE = '0'
-CONFIG = 'config.json'
-params = json.load(open(CONFIG))
+GPU_TO_USE = '1'
+# CONFIG = 'config.json'
+# params = json.load(open(CONFIG))
+
+params = {
+    "model_dir": "models/run00/",
+    "train_dataset": "/home/dan/datasets/COCO/multiposenet/train/",
+    "val_dataset": "/home/dan/datasets/COCO/multiposenet/val/",
+    "pretrained_checkpoint": "pretrained/mobilenet_v1_1.0_224.ckpt",
+
+    "backbone": "mobilenet",
+    "depth_multiplier": 1.0,
+    "weight_decay": 2e-5,
+#     "num_classes": 80,
+
+#     "score_threshold": 0.05, "iou_threshold": 0.6, "max_boxes_per_class": 25,
+#     "localization_loss_weight": 1.0, "classification_loss_weight": 4.0,
+
+#     "use_focal_loss": true,
+#     "gamma": 2.0,
+#     "alpha": 0.25,
+
+    "num_steps": 90000,
+    "lr_boundaries": [75000, 110000],
+    "lr_values": [0.01, 0.001, 0.0001],
+
+    "min_dimension": 512,
+    "batch_size": 8,
+    "image_height": 512,
+    "image_width": 512,
+}
 
 
 def get_input_fn(is_training=True):
