@@ -332,17 +332,20 @@ def resize_keeping_aspect_ratio(image, masks, keypoints, min_dimension, divisor)
     # resize keeping aspect ratio
     image = tf.image.resize_images(image, [new_height, new_width], method=RESIZE_METHOD)
 
-    new_height2, new_width2 = tf.to_int32(tf.ceil(new_height/DOWNSAMPLE)), tf.to_int32(tf.ceil(new_width/DOWNSAMPLE))
-    masks = tf.image.resize_images(masks, [new_height2, new_width2], method=tf.image.ResizeMethod.NEAREST_NEIGHBOR)
-
     image = tf.image.pad_to_bounding_box(
         image, offset_height=0, offset_width=0,
         target_height=new_height + pad_height,
         target_width=new_width + pad_width
     )
     # it pads image at the bottom or at the right
-
-    pad_height2, pad_width2 = tf.to_int32(tf.ceil(pad_height/DOWNSAMPLE)), tf.to_int32(tf.ceil(pad_width/DOWNSAMPLE))
+    
+    y = tf.to_int32(tf.ceil((new_height + pad_height)/DOWNSAMPLE))
+    x = tf.to_int32(tf.ceil((new_width + pad_width)/DOWNSAMPLE))
+    
+    new_height2, new_width2 = tf.to_int32(tf.ceil(new_height/DOWNSAMPLE)), tf.to_int32(tf.ceil(new_width/DOWNSAMPLE))
+    masks = tf.image.resize_images(masks, [new_height2, new_width2], method=tf.image.ResizeMethod.NEAREST_NEIGHBOR)
+    
+    pad_height2, pad_width2 = tf.maximum(y - new_height2, 0), tf.maximum(x - new_width2, 0)
     masks = tf.image.pad_to_bounding_box(
         masks, offset_height=0, offset_width=0,
         target_height=new_height2 + pad_height2,

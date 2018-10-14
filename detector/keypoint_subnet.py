@@ -69,8 +69,8 @@ class KeypointSubnet:
             Where (h, w) = (image_height/DOWNSAMPLE, image_width/DOWNSAMPLE).
         """
         with tf.name_scope('postprocessing'):
-            heatmaps = self.heatmaps[:, :, :, :18]
-            segmentation_masks = self.heatmaps[:, :, :, 18]
+            heatmaps = self.heatmaps[:, :, :, :17]
+            segmentation_masks = self.heatmaps[:, :, :, 17]
         return {'heatmaps': heatmaps, 'segmentation_masks': segmentation_masks}
 
 
