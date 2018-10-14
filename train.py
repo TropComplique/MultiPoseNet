@@ -19,18 +19,16 @@ params = {
     "backbone": "mobilenet",
     "depth_multiplier": 1.0,
     "weight_decay": 2e-5,
-#     "num_classes": 80,
 
-#     "score_threshold": 0.05, "iou_threshold": 0.6, "max_boxes_per_class": 25,
-#     "localization_loss_weight": 1.0, "classification_loss_weight": 4.0,
+    # "score_threshold": 0.05, "iou_threshold": 0.6, "max_boxes_per_class": 25,
+    # "localization_loss_weight": 1.0, "classification_loss_weight": 4.0,
 
-#     "use_focal_loss": true,
-#     "gamma": 2.0,
-#     "alpha": 0.25,
+    # "gamma": 2.0,
+    # "alpha": 0.25,
 
     "num_steps": 90000,
-    "lr_boundaries": [75000, 110000],
-    "lr_values": [0.01, 0.001, 0.0001],
+    "lr_boundaries": [70000],
+    "lr_values": [1e-4, 1e-5],
 
     "min_dimension": 512,
     "batch_size": 8,
@@ -66,7 +64,10 @@ run_config = run_config.replace(
 
 train_input_fn = get_input_fn(is_training=True)
 val_input_fn = get_input_fn(is_training=False)
-estimator = tf.estimator.Estimator(model_fn, params=params, config=run_config)
+estimator = tf.estimator.Estimator(
+    model_fn, params=params, config=run_config,
+    warm_start_from=tf.estimator.WarmStartSettings('pretrained/mobilenet_v1_1.0_224.ckpt', 'MobilenetV1/*')
+)
 
 
 train_spec = tf.estimator.TrainSpec(train_input_fn, max_steps=params['num_steps'])

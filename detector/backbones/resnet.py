@@ -37,7 +37,7 @@ def resnet(images, is_training):
         num_units_per_block = [3, 4, 6, 3]
         strides = [1, 2, 2, 2]
 
-        for i, num_units, stride in enumerate(zip(num_units_per_block, strides)):
+        for i, (num_units, stride) in enumerate(zip(num_units_per_block, strides)):
             num_filters = 64 * (2**i)  # [64, 128, 256, 512]
             x = block(x, is_training, num_filters, num_units, stride)
             features['c' + str(i + 2)] = x

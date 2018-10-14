@@ -1,8 +1,8 @@
 import tensorflow as tf
-from .fpn import fpn
 import math
 from .constants import NUM_KEYPOINTS, DATA_FORMAT
 from .utils import batch_norm_relu, conv2d_same
+from .fpn import fpn
 
 
 class KeypointSubnet:
@@ -19,13 +19,13 @@ class KeypointSubnet:
         # this is a network like resnet or mobilenet
         features = backbone(images, is_training)
 
-        self.enriched_features = fpn(
+        enriched_features = fpn(
             features, is_training, depth=128, min_level=2,
             add_coarse_features=False, scope='keypoint_fpn'
         )
         normalized_enriched_features = {
             n: batch_norm_relu(x, is_training, use_relu=False, name=n + '_batch_norm')
-            for n, x in self.enriched_features.items()
+            for n, x in enriched_features.items()
         }
         # it is a dict with keys ['p2', 'p3', 'p4', 'p5']
 
@@ -49,8 +49,16 @@ class KeypointSubnet:
             kernel_initializer=tf.random_normal_initializer(stddev=0.01),
             data_format=DATA_FORMAT, name='heatmaps'
         )
+
         if DATA_FORMAT == 'channels_first':
             self.heatmaps = tf.transpose(heatmaps, [0, 2, 3, 1])
+            self.enriched_features = {
+                n: tf.transpose(x, [0, 2, 3, 1])
+                for n, x in enriched_features.items()
+            }
+        else:
+            self.heatmaps = heatmaps
+            self.enriched_features = enriched_features
 
     def get_predictions(self):
         """

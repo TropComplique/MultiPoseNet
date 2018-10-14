@@ -19,15 +19,6 @@ def model_fn(features, labels, mode, params):
 
     subnet = KeypointSubnet(features['images'], is_training, backbone, params)
 
-    if is_training:
-        with tf.name_scope('init_from_checkpoint'):
-            # checkpoint_scope = 'ResNet-50/'
-            checkpoint_scope = 'MobilenetV1/'
-            tf.train.init_from_checkpoint(
-                params['pretrained_checkpoint'],
-                {checkpoint_scope: checkpoint_scope}
-            )
-
     if not is_training:
         predictions = subnet.get_predictions()
 
@@ -50,17 +41,15 @@ def model_fn(features, labels, mode, params):
     with tf.name_scope('losses'):
 
         heatmaps = labels['heatmaps']
-        segmentation_masks = labels['segmentation_masks']
-        segmentation_masks = tf.expand_dims(segmentation_masks, 3)
-        loss_masks = labels['loss_masks']
+        segmentation_masks = tf.expand_dims(labels['segmentation_masks'], 3)
+        loss_masks = tf.expand_dims(labels['loss_masks'], 3)
 
-        loss_masks = tf.expand_dims(loss_masks, 3)
         heatmaps = tf.concat([heatmaps, segmentation_masks], axis=3)
         losses = {'regression_loss': tf.nn.l2_loss(loss_masks * (subnet.heatmaps - heatmaps))}
 
         for level in range(2, 6):
             p = subnet.enriched_features['p' + str(level)]
-            f = tf.expand_dims(p[:, 0, :, :], 3)
+            f = tf.expand_dims(p[:, :, :, 0], 3)
             losses['segmentation_loss_at_level_' + str(level)] = tf.nn.l2_loss(f - segmentation_masks)
             shape = tf.shape(segmentation_masks)
             height, width = shape[1], shape[2]
@@ -87,13 +76,12 @@ def model_fn(features, labels, mode, params):
     assert mode == tf.estimator.ModeKeys.TRAIN
     with tf.variable_scope('learning_rate'):
         global_step = tf.train.get_global_step()
-        # learning_rate = tf.train.piecewise_constant(global_step, params['lr_boundaries'], params['lr_values'])
-        learning_rate = tf.train.cosine_decay(0.005, global_step, decay_steps=90000)
+        learning_rate = tf.train.piecewise_constant(global_step, params['lr_boundaries'], params['lr_values'])
         tf.summary.scalar('learning_rate', learning_rate)
 
     update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
     with tf.control_dependencies(update_ops), tf.variable_scope('optimizer'):
-        optimizer = tf.train.RMSPropOptimizer(learning_rate, decay=0.9, momentum=0.9, epsilon=1.0)
+        optimizer = tf.train.AdamOptimizer(learning_rate)
         grads_and_vars = optimizer.compute_gradients(total_loss)
         train_op = optimizer.apply_gradients(grads_and_vars, global_step)
 

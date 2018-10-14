@@ -29,7 +29,9 @@ And don't forget set the right paths below.
 
 # paths to downloaded data
 IMAGES_DIR = '/home/dan/datasets/COCO/images/'
+# (it contains folders train2017 and val2017)
 ANNOTATIONS_DIR = '/home/dan/datasets/COCO/annotations/'
+# (it contains files person_keypoints_*.json)
 
 # path where converted data will be stored
 RESULT_PATH = '/home/dan/datasets/COCO/multiposenet/'
@@ -38,7 +40,7 @@ RESULT_PATH = '/home/dan/datasets/COCO/multiposenet/'
 NUM_TRAIN_SHARDS = 300
 NUM_VAL_SHARDS = 1
 
-# all masks are reduced in size
+# all masks (for segmentation and for loss) are reduced in size
 DOWNSAMPLE = 4
 
 # we don't use poorly visible persons

@@ -72,7 +72,9 @@ class KeypointPipeline:
         Returns:
             image: a float tensor with shape [image_height, image_width, 3],
                 an RGB image with pixel values in the range [0, 1].
-            heatmaps_and_masks: a float tensor with shape [downsampled_height, downsampled_width, 19].
+            heatmaps: a float tensor with shape [downsampled_height, downsampled_width, 17].
+            segmentation_masks: a float tensor with shape [downsampled_height, downsampled_width].
+            loss_masks: a float tensor with shape [downsampled_height, downsampled_width].
 
             where `downsampled_height = image_height/downsample`
             and `downsampled_width = image_width/downsample`.
@@ -125,15 +127,10 @@ class KeypointPipeline:
         if self.is_training:
             image, masks, keypoints = self.augmentation(image, masks, boxes, keypoints)
         else:
-            image, masks, keypoint_scaler = resize_keeping_aspect_ratio(image, masks, self.min_dimension, DIVISOR)
-            image_height = tf.shape(image)[0]
-            image_width = tf.shape(image)[1]
-            points, v = tf.split(keypoints, [2, 1], axis=2)
-            points = tf.to_int32(tf.round(tf.to_float(points) * keypoint_scaler))
-            y, x = tf.unstack(points, axis=2)
-            y = tf.clip_by_value(y, 0, image_height - 1)
-            x = tf.clip_by_value(x, 0, image_width - 1)
-            keypoints = tf.concat([tf.stack([y, x], axis=2), v], axis=2)
+            image, masks, keypoints = resize_keeping_aspect_ratio(
+                image, masks, keypoints,
+                self.min_dimension, DIVISOR
+            )
 
         image_height = tf.shape(image)[0]
         image_width = tf.shape(image)[1]
@@ -290,7 +287,7 @@ def random_flip_left_right(image, masks, keypoints):
         return image, masks, keypoints
 
 
-def resize_keeping_aspect_ratio(image, masks, min_dimension, divisor):
+def resize_keeping_aspect_ratio(image, masks, keypoints, min_dimension, divisor):
     """
     This function resizes and possibly pads with zeros.
     When using a usual FPN, divisor must be equal to 128.
@@ -298,6 +295,7 @@ def resize_keeping_aspect_ratio(image, masks, min_dimension, divisor):
     Arguments:
         image: a float tensor with shape [height, width, 3].
         masks: a float tensor with shape [height/DOWNSAMPLE, width/DOWNSAMPLE, 2].
+        keypoints: an int tensor with shape [num_persons, 17, 3].
         min_dimension: an integer.
         divisor: an integer.
     Returns:
@@ -305,7 +303,7 @@ def resize_keeping_aspect_ratio(image, masks, min_dimension, divisor):
             where `min_dimension = min(new_height, new_width)`,
             `new_height` and `new_width` are divisible by `divisor`.
         masks: a float tensor with shape [new_height/DOWNSAMPLE, new_width/DOWNSAMPLE, 2].
-        keypoint_scaler: a float tensor with shape [2].
+        keypoints: an int tensor with shape [num_persons, 17, 3].
     """
     assert min_dimension % divisor == 0
 
@@ -355,4 +353,13 @@ def resize_keeping_aspect_ratio(image, masks, min_dimension, divisor):
         new_height/height, new_width/width
     ]))
 
-    return image, masks, keypoint_scaler
+    image_height = new_height + pad_height
+    image_width = new_width + pad_width
+    points, v = tf.split(keypoints, [2, 1], axis=2)
+    points = tf.to_int32(tf.round(tf.to_float(points) * keypoint_scaler))
+    y, x = tf.unstack(points, axis=2)
+    y = tf.clip_by_value(y, 0, image_height - 1)
+    x = tf.clip_by_value(x, 0, image_width - 1)
+    keypoints = tf.concat([tf.stack([y, x], axis=2), v], axis=2)
+
+    return image, masks, keypoints
