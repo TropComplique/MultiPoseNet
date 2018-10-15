@@ -2,8 +2,8 @@ import tensorflow as tf
 import os
 import shutil
 import json
-from model import model_fn
-from detector.input_pipeline.pipeline import resize_keeping_aspect_ratio
+from keypoints_model import model_fn
+# from detector.input_pipeline.pipeline import resize_keeping_aspect_ratio
 tf.logging.set_verbosity('INFO')
 
 
@@ -20,7 +20,7 @@ OUTPUT_FOLDER = 'export/'  # for savedmodel
 GPU_TO_USE = '0'
 PB_FILE_PATH = 'inference/model.pb'
 MIN_DIMENSION = 640
-WIDTH, HEIGHT = None, None
+WIDTH, HEIGHT = 640, 640
 BATCH_SIZE = 1  # must be an integer
 assert BATCH_SIZE == 1
 
@@ -42,12 +42,13 @@ def export_savedmodel():
         raw_images = tf.placeholder(dtype=tf.uint8, shape=[BATCH_SIZE, HEIGHT, WIDTH, 3], name='images')
 
         images = tf.to_float(raw_images)
-        images = tf.squeeze(images, 0)
-        resized_images, box_scaler = resize_keeping_aspect_ratio(images, MIN_DIMENSION, divisor=128)
+        # images = tf.squeeze(images, 0)
+        # resized_images, box_scaler = resize_keeping_aspect_ratio(images, MIN_DIMENSION, divisor=128)
+        # images = tf.expand_dims(resized_images, 0)
 
         features = {
-            'images': (1.0/255.0) * tf.expand_dims(resized_images, 0),
-            'box_scaler': box_scaler
+            'images': (1.0/255.0) * images,
+            # 'box_scaler': box_scaler
         }
         return tf.estimator.export.ServingInputReceiver(features, {'images': raw_images})
 
@@ -71,7 +72,7 @@ def convert_to_pb():
             tf.saved_model.loader.load(sess, [tf.saved_model.tag_constants.SERVING], last_saved_model)
 
             # output ops
-            keep_nodes = ['boxes', 'labels', 'scores', 'num_boxes']
+            keep_nodes = ['keypoint_heatmaps', 'segmentation_masks']
 
             input_graph_def = tf.graph_util.convert_variables_to_constants(
                 sess, graph.as_graph_def(),

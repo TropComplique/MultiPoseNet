@@ -2,6 +2,7 @@
 __pycache__
 *.so
 *.c
+*.pb
 
 models/
 export/

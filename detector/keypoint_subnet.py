@@ -71,7 +71,7 @@ class KeypointSubnet:
         with tf.name_scope('postprocessing'):
             heatmaps = self.heatmaps[:, :, :, :17]
             segmentation_masks = self.heatmaps[:, :, :, 17]
-        return {'heatmaps': heatmaps, 'segmentation_masks': segmentation_masks}
+        return {'keypoint_heatmaps': heatmaps, 'segmentation_masks': segmentation_masks}
 
 
 def phi_subnet(x, is_training, upsample, depth=128):
