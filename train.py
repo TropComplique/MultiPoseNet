@@ -31,7 +31,7 @@ params = {
     "lr_values": [1e-4, 1e-5],
 
     "min_dimension": 512,
-    "batch_size": 8,
+    "batch_size": 8,  # 1 epoch ~ 7500 steps
     "image_height": 512,
     "image_width": 512,
 }
@@ -72,7 +72,7 @@ estimator = tf.estimator.Estimator(
 
 train_spec = tf.estimator.TrainSpec(train_input_fn, max_steps=params['num_steps'])
 eval_spec = tf.estimator.EvalSpec(
-    val_input_fn, steps=None, start_delay_secs=3600 * 3, throttle_secs=3600 * 3,
+    val_input_fn, steps=None, start_delay_secs=3600 * 2, throttle_secs=3600 * 2,
     hooks=[RestoreMovingAverageHook(params['model_dir'])]
 )
 tf.estimator.train_and_evaluate(estimator, train_spec, eval_spec)

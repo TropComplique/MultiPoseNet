@@ -40,17 +40,20 @@ def model_fn(features, labels, mode, params):
 
     with tf.name_scope('losses'):
 
+        batch_size = tf.shape(heatmaps)[0]
+        normalizer = tf.to_float(batch_size)
+
         heatmaps = labels['heatmaps']
         segmentation_masks = tf.expand_dims(labels['segmentation_masks'], 3)
         loss_masks = tf.expand_dims(labels['loss_masks'], 3)
 
         heatmaps = tf.concat([heatmaps, segmentation_masks], axis=3)
-        losses = {'regression_loss': tf.nn.l2_loss(loss_masks * (subnet.heatmaps - heatmaps))}
+        losses = {'regression_loss': (1.0/normalizer) * tf.nn.l2_loss(loss_masks * (subnet.heatmaps - heatmaps))}
 
         for level in range(2, 6):
             p = subnet.enriched_features['p' + str(level)]
             f = tf.expand_dims(p[:, :, :, 0], 3)
-            losses['segmentation_loss_at_level_' + str(level)] = tf.nn.l2_loss(f - segmentation_masks)
+            losses['segmentation_loss_at_level_' + str(level)] = (10.0/normalizer) * tf.nn.l2_loss(f - segmentation_masks)
             shape = tf.shape(segmentation_masks)
             height, width = shape[1], shape[2]
             new_size = [tf.to_int32(tf.ceil(height/2)), tf.to_int32(tf.ceil(width/2))]
