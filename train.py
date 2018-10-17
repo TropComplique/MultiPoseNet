@@ -18,7 +18,7 @@ params = {
 
     "backbone": "mobilenet",
     "depth_multiplier": 1.0,
-    "weight_decay": 2e-5,
+    "weight_decay": 1e-3,
 
     # "score_threshold": 0.05, "iou_threshold": 0.6, "max_boxes_per_class": 25,
     # "localization_loss_weight": 1.0, "classification_loss_weight": 4.0,
@@ -26,8 +26,8 @@ params = {
     # "gamma": 2.0,
     # "alpha": 0.25,
 
-    "num_steps": 90000,
-    "lr_boundaries": [70000],
+    "num_steps": 120000,
+    "lr_boundaries": [80000],
     "lr_values": [1e-4, 1e-5],
 
     "min_dimension": 512,
