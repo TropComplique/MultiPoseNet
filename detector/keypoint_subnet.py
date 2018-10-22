@@ -33,29 +33,27 @@ class KeypointSubnet:
         with tf.variable_scope('phi_subnet', reuse=tf.AUTO_REUSE):
             for level in range(2, 6):
                 x = normalized_enriched_features['p' + str(level)]
-                upsample = 2**(level - 2)
-                upsampled_features.append(phi_subnet(x, is_training, upsample, depth=128))
+                y = phi_subnet(x, is_training, upsample=2**(level - 2), depth=128)
+                upsampled_features.append(y)
 
         upsampled_features = tf.concat(upsampled_features, axis=1 if DATA_FORMAT == 'channels_first' else 3)
         x = conv2d_same(upsampled_features, 64, kernel_size=3, name='final_conv3x3')
         x = batch_norm_relu(x, is_training, name='final_bn')
 
-        p = 0.01  # probability of foreground
-        # sigmoid(-log((1 - p) / p)) = p
-
         heatmaps = tf.layers.conv2d(
             x, NUM_KEYPOINTS + 1, kernel_size=(1, 1), padding='same',
-            bias_initializer=tf.constant_initializer(-math.log((1.0 - p) / p)),
-            kernel_initializer=tf.random_normal_initializer(stddev=0.01),
+            bias_initializer=tf.constant_initializer(0.0),
+            kernel_initializer=tf.random_normal_initializer(stddev=0.001),
             data_format=DATA_FORMAT, name='heatmaps'
         )
 
         if DATA_FORMAT == 'channels_first':
-            self.heatmaps = tf.transpose(heatmaps, [0, 2, 3, 1])
-            self.enriched_features = {
-                n: tf.transpose(x, [0, 2, 3, 1])
-                for n, x in enriched_features.items()
-            }
+            with tf.name_scope('to_nhwc'):
+                self.heatmaps = tf.transpose(heatmaps, [0, 2, 3, 1])
+                self.enriched_features = {
+                    n: tf.transpose(x, [0, 2, 3, 1])
+                    for n, x in enriched_features.items()
+                }
         else:
             self.heatmaps = heatmaps
             self.enriched_features = enriched_features

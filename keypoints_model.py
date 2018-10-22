@@ -53,7 +53,7 @@ def model_fn(features, labels, mode, params):
         for level in range(2, 6):
             p = subnet.enriched_features['p' + str(level)]
             f = tf.expand_dims(p[:, :, :, 0], 3)
-            losses['segmentation_loss_at_level_' + str(level)] = (1.0/normalizer) * tf.nn.l2_loss(f - segmentation_masks)
+            losses['segmentation_loss_at_level_' + str(level)] = (2.0/normalizer) * tf.nn.l2_loss(f - segmentation_masks)
             shape = tf.shape(segmentation_masks)
             height, width = shape[1], shape[2]
             new_size = [tf.to_int32(tf.ceil(height/2)), tf.to_int32(tf.ceil(width/2))]
@@ -67,11 +67,19 @@ def model_fn(features, labels, mode, params):
 
     total_loss = tf.losses.get_total_loss(add_regularization_losses=True)
 
+    with tf.name_scope('eval_metrics'):
+        h = tf.shape(heatmaps)[1]
+        w = tf.shape(heatmaps)[2]
+        area = tf.to_float(h * w)
+        per_pixel_reg_loss = tf.nn.l2_loss(loss_masks * (subnet.heatmaps - heatmaps))/(normalizer * area)
+        tf.summary.scalar('per_pixel_reg_loss', eval_per_pixel_reg_loss)
+
     if mode == tf.estimator.ModeKeys.EVAL:
 
         eval_metric_ops = {
-            'eval_regression_loss': tf.metrics.mean(losses['regression_loss'])
-            'eval_segmentation_loss_at_level_2': tf.metrics.mean(losses['eval_segmentation_loss_at_level_2'])
+            'eval_regression_loss': tf.metrics.mean(losses['regression_loss']),
+            'eval_per_pixel_reg_loss': tf.metrics.mean(per_pixel_reg_loss),
+            'eval_segmentation_loss_at_level_2': tf.metrics.mean(losses['segmentation_loss_at_level_2'])
         }
 
         return tf.estimator.EstimatorSpec(
