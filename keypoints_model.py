@@ -72,7 +72,7 @@ def model_fn(features, labels, mode, params):
         w = tf.shape(heatmaps)[2]
         area = tf.to_float(h * w)
         per_pixel_reg_loss = tf.nn.l2_loss(loss_masks * (subnet.heatmaps - heatmaps))/(normalizer * area)
-        tf.summary.scalar('per_pixel_reg_loss', eval_per_pixel_reg_loss)
+        tf.summary.scalar('per_pixel_reg_loss', per_pixel_reg_loss)
 
     if mode == tf.estimator.ModeKeys.EVAL:
 

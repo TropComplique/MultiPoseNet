@@ -24,7 +24,7 @@ class KeypointSubnet:
             add_coarse_features=False, scope='keypoint_fpn'
         )
         normalized_enriched_features = {
-            n: batch_norm_relu(x, is_training, use_relu=False, name=n + '_batch_norm')
+            n: batch_norm_relu(x, is_training, name=n + '_batch_norm')
             for n, x in enriched_features.items()
         }
         # it is a dict with keys ['p2', 'p3', 'p4', 'p5']

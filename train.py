@@ -6,7 +6,7 @@ from detector.input_pipeline import KeypointPipeline as Pipeline
 tf.logging.set_verbosity('INFO')
 
 
-GPU_TO_USE = '1'
+GPU_TO_USE = '0'
 # CONFIG = 'config.json'
 # params = json.load(open(CONFIG))
 
@@ -18,7 +18,7 @@ params = {
 
     "backbone": "mobilenet",
     "depth_multiplier": 1.0,
-    "weight_decay": 1e-3,
+    "weight_decay": 2e-3,
 
     # "score_threshold": 0.05, "iou_threshold": 0.6, "max_boxes_per_class": 25,
     # "localization_loss_weight": 1.0, "classification_loss_weight": 4.0,

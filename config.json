@@ -6,7 +6,7 @@
 
     "backbone": "mobilenet",
     "depth_multiplier": 1.0,
-    "weight_decay": 1e-3,
+    "weight_decay": 2e-3,
     "num_classes": 80,
 
     "score_threshold": 0.05, "iou_threshold": 0.6, "max_boxes_per_class": 25,
