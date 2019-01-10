@@ -4,7 +4,10 @@ from .constants import DATA_FORMAT
 from .utils import batch_norm_relu, conv2d_same
 
 
-def retinanet_box_predictor(image_features, is_training, num_anchors_per_location=6, depth=256, min_level=3):
+def retinanet_box_predictor(
+        image_features, is_training,
+        num_anchors_per_location=6,
+        depth=256, min_level=3):
     """
     Adds box predictors to each feature map,
     reshapes, and returns concatenated results.

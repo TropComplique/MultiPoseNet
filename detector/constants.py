@@ -8,7 +8,7 @@ MOVING_AVERAGE_DECAY = 0.993
 DIVISOR = 128
 
 # it is important to set this right
-BATCH_NORM_MOMENTUM = 0.997
+BATCH_NORM_MOMENTUM = 0.993
 BATCH_NORM_EPSILON = 1e-5
 
 # or 'channels_last'

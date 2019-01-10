@@ -214,10 +214,11 @@ def convert(coco, image_dir, result_path, num_shards):
             writer.close()
 
     if num_examples_written != 0:
+        shard_id += 1
         writer.close()
 
     print('Number of skipped images:', num_skipped_images)
-    print('Number of shards:', shard_id + 1)
+    print('Number of shards:', shard_id)
     print('Result is here:', result_path, '\n')
 
 

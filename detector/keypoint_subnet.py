@@ -19,13 +19,13 @@ class KeypointSubnet:
         # this is a network like resnet or mobilenet
         features = backbone(images, is_training)
 
-        enriched_features = fpn(
+        self.enriched_features = fpn(
             features, is_training, depth=128, min_level=2,
             add_coarse_features=False, scope='keypoint_fpn'
         )
         normalized_enriched_features = {
             n: batch_norm_relu(x, is_training, name=n + '_batch_norm')
-            for n, x in enriched_features.items()
+            for n, x in self.enriched_features.items()
         }
         # it is a dict with keys ['p2', 'p3', 'p4', 'p5']
 
@@ -33,14 +33,14 @@ class KeypointSubnet:
         with tf.variable_scope('phi_subnet', reuse=tf.AUTO_REUSE):
             for level in range(2, 6):
                 x = normalized_enriched_features['p' + str(level)]
-                y = phi_subnet(x, is_training, upsample=2**(level - 2), depth=128)
+                y = phi_subnet(x, is_training, level, upsample=2**(level - 2), depth=128)
                 upsampled_features.append(y)
 
         upsampled_features = tf.concat(upsampled_features, axis=1 if DATA_FORMAT == 'channels_first' else 3)
         x = conv2d_same(upsampled_features, 64, kernel_size=3, name='final_conv3x3')
         x = batch_norm_relu(x, is_training, name='final_bn')
 
-        heatmaps = tf.layers.conv2d(
+        self.heatmaps = tf.layers.conv2d(
             x, NUM_KEYPOINTS + 1, kernel_size=(1, 1), padding='same',
             bias_initializer=tf.constant_initializer(0.0),
             kernel_initializer=tf.random_normal_initializer(stddev=0.001),
@@ -49,35 +49,38 @@ class KeypointSubnet:
 
         if DATA_FORMAT == 'channels_first':
             with tf.name_scope('to_nhwc'):
-                self.heatmaps = tf.transpose(heatmaps, [0, 2, 3, 1])
+                self.heatmaps = tf.transpose(self.heatmaps, [0, 2, 3, 1])
                 self.enriched_features = {
                     n: tf.transpose(x, [0, 2, 3, 1])
-                    for n, x in enriched_features.items()
+                    for n, x in self.enriched_features.items()
                 }
-        else:
-            self.heatmaps = heatmaps
-            self.enriched_features = enriched_features
 
     def get_predictions(self):
         """
         Returns:
-            heatmaps: a float tensor with shape [batch_size, h, w, 17].
+            heatmaps: a float tensor with shape [batch_size, h, w, 17],
+                where (h, w) = (image_height/DOWNSAMPLE, image_width/DOWNSAMPLE).
             segmentation_masks: a float tensor with shape [batch_size, h, w].
-
-            Where (h, w) = (image_height/DOWNSAMPLE, image_width/DOWNSAMPLE).
         """
-        with tf.name_scope('postprocessing'):
-            heatmaps = self.heatmaps[:, :, :, :17]
-            segmentation_masks = self.heatmaps[:, :, :, 17]
+        heatmaps = self.heatmaps[:, :, :, :17]
+        segmentation_masks = self.heatmaps[:, :, :, 17]
         return {'keypoint_heatmaps': heatmaps, 'segmentation_masks': segmentation_masks}
 
 
-def phi_subnet(x, is_training, upsample, depth=128):
+def phi_subnet(x, is_training, level, upsample, depth=128):
+    """
+    Arguments:
+        x: a float tensor with shape [batch_size, channels, height, width].
+        is_training: a boolean.
+        level, upsample, depth: integers.
+    Returns:
+        a float tensor with shape [batch_size, depth, upsample * height, upsample * width].
+    """
 
     x = conv2d_same(x, depth, kernel_size=3, name='conv1')
-    x = batch_norm_relu(x, is_training, name='bn1')
+    x = batch_norm_relu(x, is_training, name='bn1_for_level_%d' % level)
     x = conv2d_same(x, depth, kernel_size=3, name='conv2')
-    x = batch_norm_relu(x, is_training, name='bn2')
+    x = batch_norm_relu(x, is_training, name='bn2_for_level_%d' % level)
 
     if DATA_FORMAT == 'channels_first':
         x = tf.transpose(x, [0, 2, 3, 1])

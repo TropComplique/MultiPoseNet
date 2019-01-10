@@ -125,18 +125,20 @@ class KeypointPipeline:
         masks = tf.to_float(masks)  # it has binary values only
 
         if self.is_training:
-            image, masks, keypoints = self.augmentation(image, masks, boxes, keypoints)
+            image, masks, keypoints = self.augmentation(
+                image, masks, boxes, keypoints
+            )
         else:
             image, masks, keypoints = resize_keeping_aspect_ratio(
                 image, masks, keypoints,
                 self.min_dimension, DIVISOR
             )
 
-        image_height = tf.shape(image)[0]
-        image_width = tf.shape(image)[1]
+        shape = tf.shape(image)
+        image_height, image_width = shape[0], shape[1]
         sigma = 1.5
         heatmaps = tf.py_func(
-            lambda k, w, h: get_heatmaps(k, DOWNSAMPLE, sigma, w, h),
+            lambda k, w, h: get_heatmaps(k, sigma, w, h, DOWNSAMPLE),
             [tf.to_float(keypoints), image_width, image_height],
             tf.float32, stateful=False
         )
@@ -338,13 +340,13 @@ def resize_keeping_aspect_ratio(image, masks, keypoints, min_dimension, divisor)
         target_width=new_width + pad_width
     )
     # it pads image at the bottom or at the right
-    
+
     y = tf.to_int32(tf.ceil((new_height + pad_height)/DOWNSAMPLE))
     x = tf.to_int32(tf.ceil((new_width + pad_width)/DOWNSAMPLE))
-    
+
     new_height2, new_width2 = tf.to_int32(tf.ceil(new_height/DOWNSAMPLE)), tf.to_int32(tf.ceil(new_width/DOWNSAMPLE))
     masks = tf.image.resize_images(masks, [new_height2, new_width2], method=tf.image.ResizeMethod.NEAREST_NEIGHBOR)
-    
+
     pad_height2, pad_width2 = tf.maximum(y - new_height2, 0), tf.maximum(x - new_width2, 0)
     masks = tf.image.pad_to_bounding_box(
         masks, offset_height=0, offset_width=0,

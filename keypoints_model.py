@@ -17,7 +17,10 @@ def model_fn(features, labels, mode, params):
             depth_multiplier=params['depth_multiplier']
         )
 
-    subnet = KeypointSubnet(features['images'], is_training, backbone, params)
+    subnet = KeypointSubnet(
+        features['images'],
+        is_training, backbone, params
+    )
 
     if not is_training:
         predictions = subnet.get_predictions()
@@ -90,7 +93,7 @@ def model_fn(features, labels, mode, params):
     assert mode == tf.estimator.ModeKeys.TRAIN
     with tf.variable_scope('learning_rate'):
         global_step = tf.train.get_global_step()
-        learning_rate = tf.train.piecewise_constant(global_step, params['lr_boundaries'], params['lr_values'])
+        learning_rate = tf.train.cosine_decay(1e-4, global_step, decay_steps=150000)
         tf.summary.scalar('learning_rate', learning_rate)
 
     update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)

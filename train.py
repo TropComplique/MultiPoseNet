@@ -26,7 +26,7 @@ params = {
     # "gamma": 2.0,
     # "alpha": 0.25,
 
-    "num_steps": 120000,
+    "num_steps": 150000,
     "lr_boundaries": [80000],
     "lr_values": [1e-4, 1e-5],
 
