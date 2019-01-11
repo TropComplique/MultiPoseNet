@@ -1,7 +1,10 @@
 import tensorflow as tf
 from detector import KeypointSubnet
-from detector.backbones import mobilenet_v1, resnet
+from detector.backbones import mobilenet_v1
 from detector.constants import MOVING_AVERAGE_DECAY, DATA_FORMAT
+
+
+ADDITIONAL_LOSS_WEIGHT = 4.0
 
 
 def model_fn(features, labels, mode, params):
@@ -22,10 +25,8 @@ def model_fn(features, labels, mode, params):
         is_training, backbone, params
     )
 
-    if not is_training:
-        predictions = subnet.get_predictions()
-
     if mode == tf.estimator.ModeKeys.PREDICT:
+        predictions = subnet.get_predictions()
         export_outputs = tf.estimator.export.PredictOutput({
             name: tf.identity(tensor, name)
             for name, tensor in predictions.items()
@@ -47,33 +48,47 @@ def model_fn(features, labels, mode, params):
         normalizer = tf.to_float(batch_size)
 
         heatmaps = labels['heatmaps']
+        # it has shape [b, h, w, 17],
+        # where (h, w) = (image_height / 4, image_width / 4),
+        # and `b` is batch size
+
         segmentation_masks = tf.expand_dims(labels['segmentation_masks'], 3)
         loss_masks = tf.expand_dims(labels['loss_masks'], 3)
+        # they have shape [b, h, w, 1]
 
         heatmaps = tf.concat([heatmaps, segmentation_masks], axis=3)
-        losses = {'regression_loss': (1.0/normalizer) * tf.nn.l2_loss(loss_masks * (subnet.heatmaps - heatmaps))}
+        regression_loss = tf.nn.l2_loss(loss_masks * (subnet.heatmaps - heatmaps))
+        losses = {
+            'regression_loss': (1.0/normalizer) * regression_loss
+        }
 
+        # additional supervision with segmentation
         for level in range(2, 6):
+
             p = subnet.enriched_features['p' + str(level)]
             f = tf.expand_dims(p[:, :, :, 0], 3)
-            losses['segmentation_loss_at_level_' + str(level)] = (2.0/normalizer) * tf.nn.l2_loss(f - segmentation_masks)
+            # it has shape [b, image_height / stride, image_width / stride, 1],
+            # where stride = level**2
+
+            value = (ADDITIONAL_LOSS_WEIGHT/normalizer) * tf.nn.l2_loss(f - segmentation_masks)
+            losses['segmentation_loss_at_level_' + str(level)] = value
+
             shape = tf.shape(segmentation_masks)
             height, width = shape[1], shape[2]
-            new_size = [tf.to_int32(tf.ceil(height/2)), tf.to_int32(tf.ceil(width/2))]
-            segmentation_masks = tf.image.resize_images(
+            new_size = [tf.to_int32(height // 2), tf.to_int32(width // 2)]
+            segmentation_masks = tf.image.resize_bilinear(
                 segmentation_masks, new_size, align_corners=True
             )
 
     for n, v in losses.items():
         tf.losses.add_loss(v)
         tf.summary.scalar(n, v)
-
     total_loss = tf.losses.get_total_loss(add_regularization_losses=True)
 
     with tf.name_scope('eval_metrics'):
-        h = tf.shape(heatmaps)[1]
-        w = tf.shape(heatmaps)[2]
-        area = tf.to_float(h * w)
+        shape = tf.shape(heatmaps)
+        height, width = shape[1], shape[2]
+        area = tf.to_float(height * width)
         per_pixel_reg_loss = tf.nn.l2_loss(loss_masks * (subnet.heatmaps - heatmaps))/(normalizer * area)
         tf.summary.scalar('per_pixel_reg_loss', per_pixel_reg_loss)
 
@@ -82,7 +97,8 @@ def model_fn(features, labels, mode, params):
         eval_metric_ops = {
             'eval_regression_loss': tf.metrics.mean(losses['regression_loss']),
             'eval_per_pixel_reg_loss': tf.metrics.mean(per_pixel_reg_loss),
-            'eval_segmentation_loss_at_level_2': tf.metrics.mean(losses['segmentation_loss_at_level_2'])
+            'eval_segmentation_loss_at_level_2': tf.metrics.mean(losses['segmentation_loss_at_level_2']),
+            'eval_segmentation_loss_at_level_5': tf.metrics.mean(losses['segmentation_loss_at_level_5'])
         }
 
         return tf.estimator.EstimatorSpec(
@@ -93,7 +109,10 @@ def model_fn(features, labels, mode, params):
     assert mode == tf.estimator.ModeKeys.TRAIN
     with tf.variable_scope('learning_rate'):
         global_step = tf.train.get_global_step()
-        learning_rate = tf.train.cosine_decay(1e-4, global_step, decay_steps=150000)
+        learning_rate = tf.train.cosine_decay(
+            params['initial_learning_rate'], global_step,
+            decay_steps=params['num_steps']
+        )
         tf.summary.scalar('learning_rate', learning_rate)
 
     update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)

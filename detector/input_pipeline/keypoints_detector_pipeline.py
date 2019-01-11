@@ -10,6 +10,9 @@ from .heatmap_creation import get_heatmaps
 """Input pipeline for training or evaluating networks for heatmap regression."""
 
 
+SIGMA = 1.5
+
+
 class KeypointPipeline:
     def __init__(self, filenames, is_training, params):
         """
@@ -72,12 +75,12 @@ class KeypointPipeline:
         Returns:
             image: a float tensor with shape [image_height, image_width, 3],
                 an RGB image with pixel values in the range [0, 1].
-            heatmaps: a float tensor with shape [downsampled_height, downsampled_width, 17].
-            segmentation_masks: a float tensor with shape [downsampled_height, downsampled_width].
-            loss_masks: a float tensor with shape [downsampled_height, downsampled_width].
+            heatmaps: a float tensor with shape [h, w, 17].
+            segmentation_masks: a float tensor with shape [h, w].
+            loss_masks: a float tensor with shape [h, w].
 
-            where `downsampled_height = image_height/downsample`
-            and `downsampled_width = image_width/downsample`.
+            where `h = image_height/downsample`
+            and `w = image_width/downsample`.
         """
         features = {
             'image': tf.FixedLenFeature([], tf.string),
@@ -136,34 +139,30 @@ class KeypointPipeline:
 
         shape = tf.shape(image)
         image_height, image_width = shape[0], shape[1]
-        sigma = 1.5
         heatmaps = tf.py_func(
-            lambda k, w, h: get_heatmaps(k, sigma, w, h, DOWNSAMPLE),
+            lambda k, w, h: get_heatmaps(k, SIGMA, w, h, DOWNSAMPLE),
             [tf.to_float(keypoints), image_width, image_height],
             tf.float32, stateful=False
         )
-
-        if self.is_training:
-            heatmaps_height = math.ceil(self.image_size[0]/DOWNSAMPLE)
-            heatmaps_width = math.ceil(self.image_size[1]/DOWNSAMPLE)
-            heatmaps.set_shape([heatmaps_height, heatmaps_width, 17])
-        else:
-            heatmaps.set_shape([None, None, 17])
-
-        loss_mask = masks[:, :, 0]
-        segmentation_mask = masks[:, :, 1]
+        heatmaps.set_shape([None, None, 17])
 
         features = {'images': image}
         labels = {
             'heatmaps': heatmaps,
-            'segmentation_masks': segmentation_mask,
-            'loss_masks': loss_mask
+            'segmentation_masks': masks[:, :, 1],
+            'loss_masks': masks[:, :, 0]
         }
         return features, labels
 
     def augmentation(self, image, masks, boxes, keypoints):
-        image, masks, boxes, keypoints = random_rotation(image, masks, boxes, keypoints, max_angle=45, probability=0.9)
-        image, masks, keypoints = randomly_crop_and_resize(image, masks, boxes, keypoints, self.image_size, probability=0.9)
+        image, masks, boxes, keypoints = random_rotation(
+            image, masks, boxes, keypoints,
+            max_angle=45, probability=0.9
+        )
+        image, masks, keypoints = randomly_crop_and_resize(
+            image, masks, boxes, keypoints,
+            self.image_size, probability=0.9
+        )
         image = random_color_manipulations(image, probability=0.5, grayscale_probability=0.1)
         image = random_pixel_value_scale(image, probability=0.1, minval=0.9, maxval=1.1)
         image, masks, keypoints = random_flip_left_right(image, masks, keypoints)
@@ -202,7 +201,6 @@ def randomly_crop_and_resize(image, masks, boxes, keypoints, image_size, probabi
         return image, window
 
     whole_image_window = tf.constant([0.0, 0.0, 1.0, 1.0], dtype=tf.float32)
-
     do_it = tf.less(tf.random_uniform([]), probability)
     image, window = tf.cond(
         do_it, lambda: crop(image, boxes),
@@ -240,7 +238,10 @@ def randomly_crop_and_resize(image, masks, boxes, keypoints, image_size, probabi
     v *= tf.to_int32(valid_indicator)
 
     translation = tf.stack([ymin, xmin])  # translate coordinate system
-    scaler = tf.stack([tf.to_float(image_size[0])/(ymax - ymin), tf.to_float(image_size[1])/(xmax - xmin)])
+    scaler = tf.stack([
+        tf.to_float(image_size[0])/(ymax - ymin),
+        tf.to_float(image_size[1])/(xmax - xmin)
+    ])
 
     points = tf.to_int32(tf.round(scaler * (points - translation)))
     y, x = tf.unstack(points, axis=2)
@@ -301,10 +302,10 @@ def resize_keeping_aspect_ratio(image, masks, keypoints, min_dimension, divisor)
         min_dimension: an integer.
         divisor: an integer.
     Returns:
-        image: a float tensor with shape [new_height, new_width, 3],
-            where `min_dimension = min(new_height, new_width)`,
-            `new_height` and `new_width` are divisible by `divisor`.
-        masks: a float tensor with shape [new_height/DOWNSAMPLE, new_width/DOWNSAMPLE, 2].
+        image: a float tensor with shape [h, w, 3],
+            where `min_dimension = min(h, w)`,
+            `h` and `w` are divisible by `divisor`.
+        masks: a float tensor with shape [h/DOWNSAMPLE, w/DOWNSAMPLE, 2].
         keypoints: an int tensor with shape [num_persons, 17, 3].
     """
     assert min_dimension % divisor == 0
@@ -336,22 +337,24 @@ def resize_keeping_aspect_ratio(image, masks, keypoints, min_dimension, divisor)
 
     image = tf.image.pad_to_bounding_box(
         image, offset_height=0, offset_width=0,
-        target_height=new_height + pad_height,
-        target_width=new_width + pad_width
+        target_height=new_height + pad_height,  # h
+        target_width=new_width + pad_width  # w
     )
     # it pads image at the bottom or at the right
 
-    y = tf.to_int32(tf.ceil((new_height + pad_height)/DOWNSAMPLE))
-    x = tf.to_int32(tf.ceil((new_width + pad_width)/DOWNSAMPLE))
+    map_height = tf.to_int32(tf.ceil((new_height + pad_height)/DOWNSAMPLE))
+    map_width = tf.to_int32(tf.ceil((new_width + pad_width)/DOWNSAMPLE))
 
-    new_height2, new_width2 = tf.to_int32(tf.ceil(new_height/DOWNSAMPLE)), tf.to_int32(tf.ceil(new_width/DOWNSAMPLE))
-    masks = tf.image.resize_images(masks, [new_height2, new_width2], method=tf.image.ResizeMethod.NEAREST_NEIGHBOR)
+    map_new_height = tf.to_int32(tf.ceil(new_height/DOWNSAMPLE))
+    map_new_width = tf.to_int32(tf.ceil(new_width/DOWNSAMPLE))
+    masks = tf.image.resize_images(
+        masks, [map_new_height, map_new_width],
+        method=tf.image.ResizeMethod.NEAREST_NEIGHBOR
+    )
 
-    pad_height2, pad_width2 = tf.maximum(y - new_height2, 0), tf.maximum(x - new_width2, 0)
     masks = tf.image.pad_to_bounding_box(
         masks, offset_height=0, offset_width=0,
-        target_height=new_height2 + pad_height2,
-        target_width=new_width2 + pad_width2
+        target_height=map_height, target_width=map_width
     )
 
     keypoint_scaler = tf.to_float(tf.stack([

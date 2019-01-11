@@ -7,33 +7,29 @@ tf.logging.set_verbosity('INFO')
 
 
 GPU_TO_USE = '0'
-# CONFIG = 'config.json'
-# params = json.load(open(CONFIG))
+PARAMS = {
+    'model_dir': 'models/run00/',
+    'train_dataset': '/home/dan/datasets/COCO/multiposenet/train/',
+    'val_dataset': '/home/dan/datasets/COCO/multiposenet/val/',
+    'pretrained_checkpoint': 'pretrained/mobilenet_v1_1.0_224.ckpt',
+    # 'pretrained_checkpoint': 'models/run00/model-175000',
 
-params = {
-    "model_dir": "models/run00/",
-    "train_dataset": "/home/dan/datasets/COCO/multiposenet/train/",
-    "val_dataset": "/home/dan/datasets/COCO/multiposenet/val/",
-    "pretrained_checkpoint": "pretrained/mobilenet_v1_1.0_224.ckpt",
+    'backbone': 'mobilenet',
+    'depth_multiplier': 1.0,
+    'weight_decay': 2e-3,
+    # 'score_threshold': 0.3, 'iou_threshold': 0.6, 'max_boxes_per_class': 25,
+    # 'localization_loss_weight': 1.0, 'classification_loss_weight': 2.0,
 
-    "backbone": "mobilenet",
-    "depth_multiplier": 1.0,
-    "weight_decay": 2e-3,
+    # 'gamma': 2.0,
+    # 'alpha': 0.25,
 
-    # "score_threshold": 0.05, "iou_threshold": 0.6, "max_boxes_per_class": 25,
-    # "localization_loss_weight": 1.0, "classification_loss_weight": 4.0,
+    'num_steps': 175000,
+    'initial_learning_rate' 5e-4,
 
-    # "gamma": 2.0,
-    # "alpha": 0.25,
-
-    "num_steps": 150000,
-    "lr_boundaries": [80000],
-    "lr_values": [1e-4, 1e-5],
-
-    "min_dimension": 512,
-    "batch_size": 8,  # 1 epoch ~ 7500 steps
-    "image_height": 512,
-    "image_width": 512,
+    'min_dimension': 512,
+    'batch_size': 8,  # 1 epoch ~ 7500 steps
+    'image_height': 512,
+    'image_width': 512,
 }
 
 
@@ -56,7 +52,7 @@ session_config = tf.ConfigProto(allow_soft_placement=True)
 session_config.gpu_options.visible_device_list = GPU_TO_USE
 run_config = tf.estimator.RunConfig()
 run_config = run_config.replace(
-    model_dir=params['model_dir'], session_config=session_config,
+    model_dir=PARAMS['model_dir'], session_config=session_config,
     save_summary_steps=200, save_checkpoints_secs=1800,
     log_step_count_steps=1000
 )
@@ -64,9 +60,13 @@ run_config = run_config.replace(
 
 train_input_fn = get_input_fn(is_training=True)
 val_input_fn = get_input_fn(is_training=False)
+warm_start = tf.estimator.WarmStartSettings(
+    'pretrained/mobilenet_v1_1.0_224.ckpt',
+    ['MobilenetV1/*']
+)
 estimator = tf.estimator.Estimator(
     model_fn, params=params, config=run_config,
-    warm_start_from=tf.estimator.WarmStartSettings('pretrained/mobilenet_v1_1.0_224.ckpt', 'MobilenetV1/*')
+    warm_start_from=warm_start
 )
 
 

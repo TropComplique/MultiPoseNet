@@ -7,6 +7,9 @@ from .anchor_generator import AnchorGenerator
 from .fpn import fpn
 
 
+DEPTH = 128
+
+
 class RetinaNet:
     def __init__(self, images, is_training, backbone, params):
         """
@@ -22,11 +25,11 @@ class RetinaNet:
         features = backbone(images, is_training)
 
         enriched_features = fpn(
-            features, is_training, depth=128, min_level=3,
+            features, is_training, depth=DEPTH, min_level=3,
             add_coarse_features=True, scope='fpn'
         )
         enriched_features = {
-            n: batch_norm_relu(x, is_training, use_relu=False, name=n + '_batch_norm')
+            n: batch_norm_relu(x, is_training, name=n + '_batch_norm')
             for n, x in enriched_features.items()
         }
 

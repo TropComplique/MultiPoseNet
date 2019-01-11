@@ -199,9 +199,9 @@ def resize_keeping_aspect_ratio(image, min_dimension, divisor):
         min_dimension: an integer.
         divisor: an integer.
     Returns:
-        image: a float tensor with shape [new_height, new_width, 3],
-            where `min_dimension = min(new_height, new_width)`,
-            `new_height` and `new_width` are divisible by `divisor`.
+        image: a float tensor with shape [h, w, 3],
+            where `min_dimension = min(h, w)`,
+            `h` and `w` are divisible by `divisor`.
         box_scaler: a float tensor with shape [4].
     """
     assert min_dimension % divisor == 0
@@ -233,8 +233,8 @@ def resize_keeping_aspect_ratio(image, min_dimension, divisor):
 
     image = tf.image.pad_to_bounding_box(
         image, offset_height=0, offset_width=0,
-        target_height=new_height + pad_height,
-        target_width=new_width + pad_width
+        target_height=new_height + pad_height,  # h
+        target_width=new_width + pad_width  # w
     )
     # it pads image at the bottom or at the right
 

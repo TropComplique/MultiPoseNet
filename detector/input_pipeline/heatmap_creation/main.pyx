@@ -14,9 +14,9 @@ cdef inline float min(float a, float b):
 @cython.boundscheck(False)
 @cython.wraparound(False)
 def get_heatmaps(
-        np.ndarray[float, ndim=3] keypoints,
-        float sigma, unsigned int width,
-        unsigned int height, unsigned int downsample):
+        np.ndarray[float, ndim=3] keypoints, float sigma,
+        unsigned int width, unsigned int height,
+        unsigned int downsample):
     """
     Arguments:
         keypoints: a numpy float array with shape [num_persons, 17, 3].

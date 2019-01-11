@@ -15,56 +15,37 @@ using the official evaluation scripts.
 class Evaluator:
     """It creates ops like in tf.metrics API."""
 
-    def __init__(self, num_classes):
-        """
-        Arguments:
-            num_classes: an integer.
-        """
-        assert num_classes > 0
-        self.num_classes = num_classes
+    def __init__(self):
         self.initialize()
 
     def evaluate(self, iou_threshold=0.5):
-
-        self.metrics = {}
-        for label in range(self.num_classes):
-            self.metrics[label] = evaluate_detector(
-                self.groundtruth[label],
-                self.detections[label],
-                iou_threshold
-            )
-
-        if self.num_classes > 1:
-            APs = [
-                self.metrics[label]['AP']
-                for label in range(self.num_classes)
-            ]
-            self.metrics['mAP'] = np.mean(APs)
+        self.metrics = evaluate_detector(
+            self.groundtruth,
+            self.detections,
+            iou_threshold
+        )
 
     def get_metric_ops(self, groundtruth, predictions):
         """
         Arguments:
             groundtruth: a dict with the following keys
                 'boxes': a float tensor with shape [1, N, 4].
-                'labels': an int tensor with shape [1, N].
             predictions: a dict with the following keys
                 'boxes': a float tensor with shape [1, M, 4].
-                'labels': an int tensor with shape [1, M].
                 'scores': a float tensor with shape [1, M].
                 'num_boxes': a float tensor with shape [1].
         """
 
-        def update_op_func(gt_boxes, gt_labels, boxes, labels, scores):
+        def update_op_func(gt_boxes, boxes, scores):
             image_name = '{}'.format(self.unique_image_id)
             self.unique_image_id += 1
-            self.add_groundtruth(image_name, gt_boxes, gt_labels)
-            self.add_detections(image_name, boxes, labels, scores)
+            self.add_groundtruth(image_name, gt_boxes)
+            self.add_detections(image_name, boxes, scores)
 
         num_boxes = predictions['num_boxes'][0]
         tensors = [
-            groundtruth['boxes'][0], groundtruth['labels'][0],
+            groundtruth['boxes'][0],
             predictions['boxes'][0][:num_boxes],
-            predictions['labels'][0][:num_boxes],
             predictions['scores'][0][:num_boxes]
         ]
         update_op = tf.py_func(update_op_func, tensors, [])
@@ -74,9 +55,9 @@ class Evaluator:
             self.initialize()
         evaluate_op = tf.py_func(evaluate_func, [], [])
 
-        def get_value_func(label, measure):
+        def get_value_func(measure):
             def value_func():
-                return np.float32(self.metrics[label][measure])
+                return np.float32(self.metrics[measure])
             return value_func
 
         with tf.control_dependencies([evaluate_op]):
@@ -87,44 +68,35 @@ class Evaluator:
             ]
 
             eval_metric_ops = {}
-
-            if self.num_classes == 1:
-                for measure in metric_names:
-                    name = 'metrics/' + measure
-                    value_op = tf.py_func(get_value_func(0, measure), [], tf.float32)
-                    eval_metric_ops[name] = (value_op, update_op)
-
-            if self.num_classes > 1:
-                get_map = lambda: np.float32(self.metrics['mAP'])
-                value_op = tf.py_func(get_map, [], tf.float32)
-                eval_metric_ops['metrics/mAP'] = (value_op, update_op)
+            for measure in metric_names:
+                name = 'metrics/' + measure
+                value_op = tf.py_func(get_value_func(measure), [], tf.float32)
+                eval_metric_ops[name] = (value_op, update_op)
 
         return eval_metric_ops
 
     def initialize(self):
-        # detections are separated by label
-        self.detections = {label: [] for label in range(self.num_classes)}
+        self.detections = []
 
-        # groundtruth boxes are separated by label and by image
-        self.groundtruth = {label: {} for label in range(self.num_classes)}
+        # groundtruth boxes are separated by image
+        self.groundtruth = {}
 
         # i will use this counter as an unique image identifier
         self.unique_image_id = 0
 
-    def add_detections(self, image_name, boxes, labels, scores):
+    def add_detections(self, image_name, boxes, scores):
         """
         Arguments:
             image_name: a numpy string array with shape [].
             boxes: a numpy float array with shape [M, 4].
-            labels: a numpy int array with shape [M].
             scores: a numpy float array with shape [M].
         """
-        for box, label, score in zip(boxes, labels, scores):
-            self.detections[label].append(get_box(box, image_name, score))
+        for box, score in zip(boxes, scores):
+            self.detections.append(get_box(box, image_name, score))
 
-    def add_groundtruth(self, image_name, boxes, labels):
-        for box, label in zip(boxes, labels):
-            g = self.groundtruth[label]
+    def add_groundtruth(self, image_name, boxes):
+        for box in boxes:
+            g = self.groundtruth
             if image_name in g:
                 g[image_name] += [get_box(box)]
             else:

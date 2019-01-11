@@ -1,11 +1,9 @@
 import tensorflow as tf
 from detector import RetinaNet
-from detector.backbones import mobilenet_v1, resnet
+from detector.backbones import mobilenet_v1
+from detector.constants import MOVING_AVERAGE_DECAY, DATA_FORMAT
 from metrics import Evaluator
 from keypoints_model import add_weight_decay
-
-
-MOVING_AVERAGE_DECAY = 0.993
 
 
 def model_fn(features, labels, mode, params):
@@ -26,16 +24,6 @@ def model_fn(features, labels, mode, params):
         is_training,
         backbone, params
     )
-
-    # use a pretrained backbone network
-    if is_training:
-        with tf.name_scope('init_from_checkpoint'):
-            # checkpoint_scope = 'ShuffleNetV2/'
-            checkpoint_scope = 'MobilenetV1/'
-            tf.train.init_from_checkpoint(
-                params['pretrained_checkpoint'],
-                {checkpoint_scope: checkpoint_scope}
-            )
 
     # add nms to the graph
     if not is_training:
@@ -78,7 +66,7 @@ def model_fn(features, labels, mode, params):
         batch_size = features['images'].shape[0].value
         assert batch_size == 1
 
-        evaluator = Evaluator(num_classes=params['num_classes'])
+        evaluator = Evaluator()
         eval_metric_ops = evaluator.get_metric_ops(labels, predictions)
 
         return tf.estimator.EstimatorSpec(
@@ -89,13 +77,15 @@ def model_fn(features, labels, mode, params):
     assert mode == tf.estimator.ModeKeys.TRAIN
     with tf.variable_scope('learning_rate'):
         global_step = tf.train.get_global_step()
-        # learning_rate = tf.train.piecewise_constant(global_step, params['lr_boundaries'], params['lr_values'])
-        learning_rate = tf.train.cosine_decay(0.005, global_step, decay_steps=150000)
+        learning_rate = tf.train.cosine_decay(
+            params['initial_learning_rate'], global_step,
+            decay_steps=params['num_steps']
+        )
         tf.summary.scalar('learning_rate', learning_rate)
 
     update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
     with tf.control_dependencies(update_ops), tf.variable_scope('optimizer'):
-        optimizer = tf.train.RMSPropOptimizer(learning_rate, decay=0.9, momentum=0.9, epsilon=1.0)
+        optimizer = tf.train.AdamOptimizer(learning_rate)
         grads_and_vars = optimizer.compute_gradients(total_loss)
         train_op = optimizer.apply_gradients(grads_and_vars, global_step)
 

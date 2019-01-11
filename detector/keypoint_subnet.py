@@ -5,6 +5,9 @@ from .utils import batch_norm_relu, conv2d_same
 from .fpn import fpn
 
 
+DEPTH = 128
+
+
 class KeypointSubnet:
     def __init__(self, images, is_training, backbone, params):
         """
@@ -20,7 +23,7 @@ class KeypointSubnet:
         features = backbone(images, is_training)
 
         self.enriched_features = fpn(
-            features, is_training, depth=128, min_level=2,
+            features, is_training, depth=DEPTH, min_level=2,
             add_coarse_features=False, scope='keypoint_fpn'
         )
         normalized_enriched_features = {
@@ -33,7 +36,7 @@ class KeypointSubnet:
         with tf.variable_scope('phi_subnet', reuse=tf.AUTO_REUSE):
             for level in range(2, 6):
                 x = normalized_enriched_features['p' + str(level)]
-                y = phi_subnet(x, is_training, level, upsample=2**(level - 2), depth=128)
+                y = phi_subnet(x, is_training, level, upsample=2**(level - 2))
                 upsampled_features.append(y)
 
         upsampled_features = tf.concat(upsampled_features, axis=1 if DATA_FORMAT == 'channels_first' else 3)
@@ -67,19 +70,19 @@ class KeypointSubnet:
         return {'keypoint_heatmaps': heatmaps, 'segmentation_masks': segmentation_masks}
 
 
-def phi_subnet(x, is_training, level, upsample, depth=128):
+def phi_subnet(x, is_training, level, upsample):
     """
     Arguments:
         x: a float tensor with shape [batch_size, channels, height, width].
         is_training: a boolean.
-        level, upsample, depth: integers.
+        level, upsample: integers.
     Returns:
         a float tensor with shape [batch_size, depth, upsample * height, upsample * width].
     """
 
-    x = conv2d_same(x, depth, kernel_size=3, name='conv1')
+    x = conv2d_same(x, DEPTH, kernel_size=3, name='conv1')
     x = batch_norm_relu(x, is_training, name='bn1_for_level_%d' % level)
-    x = conv2d_same(x, depth, kernel_size=3, name='conv2')
+    x = conv2d_same(x, DEPTH, kernel_size=3, name='conv2')
     x = batch_norm_relu(x, is_training, name='bn2_for_level_%d' % level)
 
     if DATA_FORMAT == 'channels_first':
