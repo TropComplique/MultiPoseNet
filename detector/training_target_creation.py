@@ -36,8 +36,7 @@ def get_training_targets(
 
     with tf.name_scope('target_creation'):
         regression_targets = create_targets(
-            anchors, groundtruth_boxes,
-            groundtruth_labels, matches
+            anchors, groundtruth_boxes, matches
         )
 
     return regression_targets, matches

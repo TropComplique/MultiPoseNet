@@ -15,7 +15,7 @@ def model_fn(features, labels, mode, params):
 
     def backbone(images, is_training):
         return mobilenet_v1(
-            images, is_training,
+            images, is_training=False,
             depth_multiplier=params['depth_multiplier']
         )
 
@@ -86,7 +86,8 @@ def model_fn(features, labels, mode, params):
     update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
     with tf.control_dependencies(update_ops), tf.variable_scope('optimizer'):
         optimizer = tf.train.AdamOptimizer(learning_rate)
-        grads_and_vars = optimizer.compute_gradients(total_loss)
+        var_list = [v for v in tf.trainable_variables() if 'MobilenetV1' not in v.name]
+        grads_and_vars = optimizer.compute_gradients(total_loss, var_list)
         train_op = optimizer.apply_gradients(grads_and_vars, global_step)
 
     for g, v in grads_and_vars:

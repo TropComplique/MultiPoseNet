@@ -1,6 +1,6 @@
 import tensorflow as tf
 from .constants import PARALLEL_ITERATIONS, POSITIVES_THRESHOLD, NEGATIVES_THRESHOLD
-from .utils import batch_non_max_suppression
+from .utils import batch_non_max_suppression, batch_norm_relu
 from .training_target_creation import get_training_targets
 from .box_predictor import retinanet_box_predictor
 from .anchor_generator import AnchorGenerator

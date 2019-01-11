@@ -32,22 +32,22 @@ def retinanet_box_predictor(
     """
 
     with tf.variable_scope('box_net', reuse=tf.AUTO_REUSE):
-        for level, p in enumerate(image_features, MIN_LEVEL):
+        for level, p in enumerate(image_features, min_level):
             encoded_boxes.append(box_net(
-                p, self.is_training, depth, level,
-                self.num_anchors_per_location
+                p, is_training, depth, level,
+                num_anchors_per_location
             ))
 
     with tf.variable_scope('class_net', reuse=tf.AUTO_REUSE):
-        for level, p in enumerate(image_features, MIN_LEVEL):
+        for level, p in enumerate(image_features, min_level):
             class_predictions.append(class_net(
-                p, self.is_training, depth, level,
-                self.num_anchors_per_location
+                p, is_training, depth, level,
+                num_anchors_per_location
             ))
 
     return reshape_and_concatenate(
         encoded_boxes, class_predictions,
-        self.num_anchors_per_location
+        num_anchors_per_location
     )
 
 
