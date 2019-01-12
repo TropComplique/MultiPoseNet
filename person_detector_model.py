@@ -30,7 +30,7 @@ def model_fn(features, labels, mode, params):
         predictions = retinanet.get_predictions(
             score_threshold=params['score_threshold'],
             iou_threshold=params['iou_threshold'],
-            max_boxes_per_class=params['max_boxes_per_class']
+            max_detections=params['max_boxes']
         )
 
     if mode == tf.estimator.ModeKeys.PREDICT:

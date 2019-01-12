@@ -20,13 +20,13 @@ PARAMS = {
     'depth_multiplier': 1.0,
     # 'weight_decay': 2e-3,
     'weight_decay': 5e-5,
-    'score_threshold': 0.3, 'iou_threshold': 0.6, 'max_boxes_per_class': 25,
+    'score_threshold': 0.3, 'iou_threshold': 0.6, 'max_boxes': 25,
     'localization_loss_weight': 1.0, 'classification_loss_weight': 2.0,
 
     'gamma': 2.0,
     'alpha': 0.25,
 
-    'num_steps': 70000,
+    'num_steps': 150000,
     'initial_learning_rate': 5e-4,
 
     'min_dimension': 640,
