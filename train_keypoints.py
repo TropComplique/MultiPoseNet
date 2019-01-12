@@ -1,38 +1,29 @@
 import os
 import tensorflow as tf
 import json
-from keypoints_model import RestoreMovingAverageHook
-from person_detector_model import model_fn
-# from detector.input_pipeline import KeypointPipeline as Pipeline
-from detector.input_pipeline import DetectorPipeline as Pipeline
+from keypoints_model import model_fn, RestoreMovingAverageHook
+from detector.input_pipeline import KeypointPipeline as Pipeline
 tf.logging.set_verbosity('INFO')
 
 
 GPU_TO_USE = '0'
 PARAMS = {
-    'model_dir': 'models/run01/',
+    'model_dir': 'models/run00/',
     'train_dataset': '/home/dan/datasets/COCO/multiposenet/train/',
     'val_dataset': '/home/dan/datasets/COCO/multiposenet/val/',
-    # 'pretrained_checkpoint': 'pretrained/mobilenet_v1_1.0_224.ckpt',
-    'pretrained_checkpoint': 'models/run00/model.ckpt-150000',
+    'pretrained_checkpoint': 'pretrained/mobilenet_v1_1.0_224.ckpt',
 
     'backbone': 'mobilenet',
     'depth_multiplier': 1.0,
-    # 'weight_decay': 2e-3,
-    'weight_decay': 5e-5,
-    'score_threshold': 0.3, 'iou_threshold': 0.6, 'max_boxes': 25,
-    'localization_loss_weight': 1.0, 'classification_loss_weight': 2.0,
+    'weight_decay': 2e-3,
 
-    'gamma': 2.0,
-    'alpha': 0.25,
-
-    'num_steps': 150000,
+    'num_steps': 175000,
     'initial_learning_rate': 5e-4,
 
-    'min_dimension': 640,
-    'batch_size': 8,  # 1 epoch ~ 7500 steps
-    'image_height': 640,
-    'image_width': 640,
+    'min_dimension': 512,
+    'batch_size': 8,
+    'image_height': 512,
+    'image_width': 512,
 }
 
 
