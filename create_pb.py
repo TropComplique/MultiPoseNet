@@ -27,6 +27,43 @@ assert BATCH_SIZE == 1
 params = json.load(open(CONFIG))
 params['min_dimension'] = MIN_DIMENSION,
 
+def backbone(images, is_training):
+        return mobilenet_v1(
+            images, is_training,
+            depth_multiplier=params['depth_multiplier']
+        )
+
+    subnet = KeypointSubnet(
+        features['images'],
+        is_training, backbone, params
+    )
+    predictions = subnet.get_predictions()
+        export_outputs = tf.estimator.export.PredictOutput({
+            name: tf.identity(tensor, name)
+            for name, tensor in predictions.items()
+        })
+        
+def backbone(images, is_training):
+        return mobilenet_v1(
+            images, is_training=False,
+            depth_multiplier=params['depth_multiplier']
+        )
+
+    retinanet = RetinaNet(
+        features['images'],
+        is_training,
+        backbone, params
+    )
+
+    # add nms to the graph
+    if not is_training:
+        predictions = retinanet.get_predictions(
+            score_threshold=params['score_threshold'],
+            iou_threshold=params['iou_threshold'],
+            max_detections=params['max_boxes']
+        )
+
+
 
 def export_savedmodel():
     config = tf.ConfigProto()

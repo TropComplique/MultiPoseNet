@@ -1,6 +1,7 @@
 import tensorflow as tf
 from detector.prn import prn
 from detector.constants import MOVING_AVERAGE_DECAY
+from keypoints_model import add_weight_decay
 
 
 def model_fn(features, labels, mode, params):
@@ -23,18 +24,18 @@ def model_fn(features, labels, mode, params):
     b = tf.shape(heatmaps)[0]
     h, w, c = heatmaps.shape.as_list()[1:]  # must be static
 
-    labels = labels['labels']  # shape [batch_size, h, w, 17]
     logits = tf.reshape(logits, [b, h * w, c])
+    labels = tf.reshape(labels, [b, h * w, c])
     losses = tf.nn.softmax_cross_entropy_with_logits(labels=labels, logits=logits, dim=1)
     # it has shape [batch_size, 17]
 
-    loss = tf.reduce_mean(losses, axes=[0, 1])
+    loss = tf.reduce_mean(losses, axis=[0, 1])
     tf.losses.add_loss(loss)
     tf.summary.scalar('localization_loss', loss)
     total_loss = tf.losses.get_total_loss(add_regularization_losses=True)
 
     if mode == tf.estimator.ModeKeys.EVAL:
-        eval_metric_ops = {'': tf.metrics.mean()}
+        eval_metric_ops = {'eval_loss': tf.metrics.mean(losses)}
         return tf.estimator.EstimatorSpec(
             mode, loss=total_loss,
             eval_metric_ops=eval_metric_ops
@@ -51,7 +52,7 @@ def model_fn(features, labels, mode, params):
 
     with tf.variable_scope('optimizer'):
         optimizer = tf.train.AdamOptimizer(learning_rate)
-        grads_and_vars = optimizer.compute_gradients(total_loss, var_list)
+        grads_and_vars = optimizer.compute_gradients(total_loss)
         train_op = optimizer.apply_gradients(grads_and_vars, global_step)
 
     for g, v in grads_and_vars:

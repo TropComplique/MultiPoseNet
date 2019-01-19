@@ -23,13 +23,14 @@ PARAMS = {
 def get_input_fn(is_training=True):
 
     dataset_path = PARAMS['train_dataset'] if is_training else PARAMS['val_dataset']
+    batch_size = PARAMS['batch_size']
     filenames = os.listdir(dataset_path)
     filenames = [n for n in filenames if n.endswith('.tfrecords')]
     filenames = [os.path.join(dataset_path, n) for n in sorted(filenames)]
 
     def input_fn():
         with tf.device('/cpu:0'), tf.name_scope('input_pipeline'):
-            pipeline = Pipeline(filenames, is_training, PARAMS)
+            pipeline = Pipeline(filenames, is_training, batch_size)
         return pipeline.dataset
 
     return input_fn
@@ -47,13 +48,8 @@ run_config = run_config.replace(
 
 train_input_fn = get_input_fn(is_training=True)
 val_input_fn = get_input_fn(is_training=False)
-warm_start = tf.estimator.WarmStartSettings(
-    PARAMS['pretrained_checkpoint'],
-    ['MobilenetV1/*']
-)
 estimator = tf.estimator.Estimator(
-    model_fn, params=PARAMS, config=run_config,
-    warm_start_from=warm_start
+    model_fn, params=PARAMS, config=run_config
 )
 
 

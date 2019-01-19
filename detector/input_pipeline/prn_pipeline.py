@@ -44,7 +44,7 @@ class PoseResidualNetworkPipeline:
             dataset = dataset.shuffle(buffer_size=SHUFFLE_BUFFER_SIZE)
         dataset = dataset.repeat(None if is_training else 1)
         dataset = dataset.map(self._parse_and_preprocess, num_parallel_calls=NUM_PARALLEL_CALLS)
-        dataset = dataset.apply(tf.data.experimental.unbatch)
+        dataset = dataset.apply(tf.data.experimental.unbatch())
 
         if is_training:
             dataset = dataset.shuffle(buffer_size=SHUFFLE_BUFFER_SIZE)
@@ -97,7 +97,7 @@ class PoseResidualNetworkPipeline:
             crop_size=CROP_SIZE
         )
 
-        def fn(keypoints, box):
+        def fn(x):
             """
             Arguments:
                 keypoints: a float tensor with shape [17, 3].
@@ -105,6 +105,7 @@ class PoseResidualNetworkPipeline:
             Returns:
                 a float tensor with shape [56, 36, 17].
             """
+            keypoints, box = x
             ymin, xmin, ymax, xmax = tf.unstack(box, axis=0)
             y, x, v = tf.unstack(keypoints, axis=1)
             keypoints = tf.stack([y, x], axis=1)
@@ -120,15 +121,20 @@ class PoseResidualNetworkPipeline:
             scaler = tf.to_float(tf.stack([CROP_SIZE[0]/h, CROP_SIZE[1]/w], axis=0))
             keypoints *= scaler
             keypoints = tf.to_int32(tf.floor(keypoints))  # shape [num_visible, 2]
+            
+            y, x = tf.unstack(keypoints, axis=1)
+            y = tf.clip_by_value(y, 0, CROP_SIZE[0] - 1)
+            x = tf.clip_by_value(x, 0, CROP_SIZE[1] - 1)
+            keypoints = tf.stack([y, x], axis=1)
 
-            indices = tf.concat([keypoints, part_id], axis=1)
+            indices = tf.to_int64(tf.concat([keypoints, part_id], axis=1))
             values = tf.ones([num_visible], dtype=tf.float32)
             binary_map = tf.sparse.SparseTensor(indices, values, dense_shape=CROP_SIZE + [17])
             binary_map = tf.sparse.to_dense(binary_map, default_value=0, validate_indices=False)
             return binary_map
 
         labels = tf.map_fn(
-            fn, [tf.to_float(keypoints), boxes],
+            fn, (tf.to_float(keypoints), boxes),
             dtype=tf.float32, back_prop=False,
         )
 
@@ -140,13 +146,14 @@ class PoseResidualNetworkPipeline:
 
 def random_flip_left_right(crops, labels):
 
-    def randomly_flip(crops, labels):
+    def randomly_flip(x):
         """
         Arguments:
             crops, labels: float tensors with shape [56, 36, 17].
         Returns:
             float tensors with shape [56, 36, 17].
         """
+        crops, labels = x
 
         def flip(crops, labels):
 
@@ -178,7 +185,8 @@ def random_flip_left_right(crops, labels):
 
     with tf.name_scope('random_flip_left_right'):
         crops, labels = tf.map_fn(
-            randomly_flip, [crops, labels],
-            dtype=tf.float32, back_prop=False,
+            randomly_flip, (crops, labels),
+            dtype=(tf.float32, tf.float32),
+            back_prop=False,
         )
-        return keypoints
+        return crops, labels
