@@ -1,35 +1,22 @@
 import os
 import tensorflow as tf
 from keypoints_model import RestoreMovingAverageHook
-from person_detector_model import model_fn
-from detector.input_pipeline import DetectorPipeline as Pipeline
+from prn_model import model_fn
+from detector.input_pipeline import PoseResidualNetworkPipeline as Pipeline
 tf.logging.set_verbosity('INFO')
 
 
 GPU_TO_USE = '0'
 PARAMS = {
-    'model_dir': 'models/run01/',
+    'model_dir': 'models/run02/',
     'train_dataset': '/home/dan/datasets/COCO/multiposenet/train/',
     'val_dataset': '/home/dan/datasets/COCO/multiposenet/val/',
-    'pretrained_checkpoint': 'models/run00/model.ckpt-175000',
 
-    'backbone': 'mobilenet',
-    'depth_multiplier': 1.0,
     'weight_decay': 5e-5,
-
-    'score_threshold': 0.3, 'iou_threshold': 0.6, 'max_boxes': 25,
-    'localization_loss_weight': 1.0, 'classification_loss_weight': 2.0,
-
-    'gamma': 2.0,
-    'alpha': 0.25,
-
     'num_steps': 150000,
     'initial_learning_rate': 7e-4,
 
-    'min_dimension': 640,
     'batch_size': 8,
-    'image_height': 640,
-    'image_width': 640,
 }
 
 
