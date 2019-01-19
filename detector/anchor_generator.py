@@ -99,7 +99,7 @@ class AnchorGenerator:
                     anchor_offset=(offset_y, offset_x)
                 ))
 
-        with tf.name_scope('concatenate_normalize_clip'):
+        with tf.name_scope('concatenate_normalize'):
 
             # this is for visualization and debugging only
             self.raw_anchors = anchors

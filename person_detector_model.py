@@ -11,18 +11,19 @@ def model_fn(features, labels, mode, params):
     This is a function for creating a computational tensorflow graph.
     The function is in format required by tf.estimator.
     """
+
+    assert mode != tf.estimator.ModeKeys.PREDICT
     is_training = mode == tf.estimator.ModeKeys.TRAIN
 
-    def backbone(images, is_training):
-        return mobilenet_v1(
-            images, is_training=False,
-            depth_multiplier=params['depth_multiplier']
-        )
-
+    images = features['images']
+    backbone_features = mobilenet_v1(
+        images, is_training=False,
+        depth_multiplier=params['depth_multiplier']
+    )
     retinanet = RetinaNet(
-        features['images'],
-        is_training,
-        backbone, params
+        backbone_features,
+        tf.shape(images),
+        is_training, params
     )
 
     # add nms to the graph
@@ -31,20 +32,6 @@ def model_fn(features, labels, mode, params):
             score_threshold=params['score_threshold'],
             iou_threshold=params['iou_threshold'],
             max_detections=params['max_boxes']
-        )
-
-    if mode == tf.estimator.ModeKeys.PREDICT:
-
-        box_scaler = features['box_scaler']
-        predictions['boxes'] /= box_scaler
-
-        export_outputs = tf.estimator.export.PredictOutput({
-            name: tf.identity(tensor, name)
-            for name, tensor in predictions.items()
-        })
-        return tf.estimator.EstimatorSpec(
-            mode, predictions=predictions,
-            export_outputs={'outputs': export_outputs}
         )
 
     # add l2 regularization

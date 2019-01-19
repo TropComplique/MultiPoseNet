@@ -3,7 +3,10 @@ from .utils import conv2d_same, batch_norm_relu
 from .constants import DATA_FORMAT
 
 
-def fpn(features, is_training, depth, min_level=3, add_coarse_features=True, scope='fpn'):
+def fpn(
+        features, is_training, depth,
+        min_level=3, add_coarse_features=True,
+        scope='fpn'):
     """
     For person detector subnetwork we
     use min_level=3 and add_coarse_features=True

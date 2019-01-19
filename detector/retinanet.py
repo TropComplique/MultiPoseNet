@@ -11,21 +11,19 @@ DEPTH = 128
 
 
 class RetinaNet:
-    def __init__(self, images, is_training, backbone, params):
+    def __init__(self, backbone_features, image_shape, is_training, params):
         """
         Arguments:
-            images: a float tensor with shape [batch_size, height, width, 3],
-                a batch of RGB images with pixel values in the range [0, 1].
+            backbone_features: a dict with float tensors.
+                It contains keys ['c2', 'c3', 'c4', 'c5'].
+            image_shape: an int tensor with shape [4].
             is_training: a boolean.
-            backbone: it takes a batch of images and returns a dict of features.
             params: a dict.
         """
 
-        # this is a network like resnet or mobilenet
-        features = backbone(images, is_training)
-
         enriched_features = fpn(
-            features, is_training, depth=DEPTH, min_level=3,
+            backbone_features, is_training,
+            depth=DEPTH, min_level=3,
             add_coarse_features=True, scope='fpn'
         )
         enriched_features = {
@@ -34,8 +32,8 @@ class RetinaNet:
         }
 
         # the detector supports images of various sizes
-        shape = tf.shape(images)
-        image_height, image_width = shape[1], shape[2]
+        image_height = image_shape[1]
+        image_width = image_shape[2]
 
         anchor_generator = AnchorGenerator(
             strides=[8, 16, 32, 64, 128],

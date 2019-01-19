@@ -31,6 +31,7 @@ def batch_non_max_suppression(
         encoded_boxes = tf.boolean_mask(encoded_boxes, is_confident)  # shape [num_confident, 4]
         scores = tf.boolean_mask(scores, is_confident)  # shape [num_confident]
         chosen_anchors = tf.boolean_mask(anchors, is_confident)  # shape [num_confident, 4]
+
         boxes = decode(encoded_boxes, chosen_anchors)  # shape [num_confident, 4]
         boxes = tf.clip_by_value(boxes, 0.0, 1.0)
 

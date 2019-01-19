@@ -9,21 +9,17 @@ DEPTH = 128
 
 
 class KeypointSubnet:
-    def __init__(self, images, is_training, backbone, params):
+    def __init__(self, backbone_features, is_training, params):
         """
         Arguments:
-            images: a float tensor with shape [batch_size, height, width, 3],
-                a batch of RGB images with pixel values in the range [0, 1].
+            backbone_features: a dict with float tensors.
+                It contains keys ['c2', 'c3', 'c4', 'c5'].
             is_training: a boolean.
-            backbone: it takes a batch of images and returns a dict of features.
             params: a dict.
         """
 
-        # this is a network like resnet or mobilenet
-        features = backbone(images, is_training)
-
         self.enriched_features = fpn(
-            features, is_training, depth=DEPTH, min_level=2,
+            backbone_features, is_training, depth=DEPTH, min_level=2,
             add_coarse_features=False, scope='keypoint_fpn'
         )
         normalized_enriched_features = {

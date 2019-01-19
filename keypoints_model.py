@@ -12,29 +12,18 @@ def model_fn(features, labels, mode, params):
     This is a function for creating a computational tensorflow graph.
     The function is in format required by tf.estimator.
     """
+
+    assert mode != tf.estimator.ModeKeys.PREDICT
     is_training = mode == tf.estimator.ModeKeys.TRAIN
 
-    def backbone(images, is_training):
-        return mobilenet_v1(
-            images, is_training,
-            depth_multiplier=params['depth_multiplier']
-        )
-
-    subnet = KeypointSubnet(
-        features['images'],
-        is_training, backbone, params
+    backbone_features = mobilenet_v1(
+        features['images'], is_training,
+        depth_multiplier=params['depth_multiplier']
     )
-
-    if mode == tf.estimator.ModeKeys.PREDICT:
-        predictions = subnet.get_predictions()
-        export_outputs = tf.estimator.export.PredictOutput({
-            name: tf.identity(tensor, name)
-            for name, tensor in predictions.items()
-        })
-        return tf.estimator.EstimatorSpec(
-            mode, predictions=predictions,
-            export_outputs={'outputs': export_outputs}
-        )
+    subnet = KeypointSubnet(
+        backbone_features,
+        is_training, params
+    )
 
     # add l2 regularization
     with tf.name_scope('weight_decay'):
@@ -56,8 +45,10 @@ def model_fn(features, labels, mode, params):
         loss_masks = tf.expand_dims(labels['loss_masks'], 3)
         # they have shape [b, h, w, 1]
 
+        predicted_heatmaps = subnet.heatmaps
         heatmaps = tf.concat([heatmaps, segmentation_masks], axis=3)
-        regression_loss = tf.nn.l2_loss(loss_masks * (subnet.heatmaps - heatmaps))
+
+        regression_loss = tf.nn.l2_loss(loss_masks * (predicted_heatmaps - heatmaps))
         losses = {
             'regression_loss': (1.0/normalizer) * regression_loss
         }
@@ -89,7 +80,7 @@ def model_fn(features, labels, mode, params):
         shape = tf.shape(heatmaps)
         height, width = shape[1], shape[2]
         area = tf.to_float(height * width)
-        per_pixel_reg_loss = tf.nn.l2_loss(loss_masks * (subnet.heatmaps - heatmaps))/(normalizer * area)
+        per_pixel_reg_loss = tf.nn.l2_loss(loss_masks * (predicted_heatmaps - heatmaps))/(normalizer * area)
         tf.summary.scalar('per_pixel_reg_loss', per_pixel_reg_loss)
 
     if mode == tf.estimator.ModeKeys.EVAL:

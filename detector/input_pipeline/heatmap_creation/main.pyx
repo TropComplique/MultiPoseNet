@@ -14,8 +14,10 @@ cdef inline float min(float a, float b):
 @cython.boundscheck(False)
 @cython.wraparound(False)
 def get_heatmaps(
-        np.ndarray[float, ndim=3] keypoints, float sigma,
-        unsigned int width, unsigned int height,
+        np.ndarray[float, ndim=3] keypoints,
+        float sigma,
+        unsigned int width,
+        unsigned int height,
         unsigned int downsample):
     """
     Arguments:
@@ -66,7 +68,8 @@ def get_heatmaps(
 @cython.boundscheck(False)
 @cython.wraparound(False)
 def create_heatmap(
-        float center_y, float center_x,
+        float center_y,
+        float center_x,
         float sigma,
         unsigned int width,
         unsigned int height):

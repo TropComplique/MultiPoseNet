@@ -7,7 +7,7 @@ Tools for dealing with bounding boxes.
 
 All boxes are of the format [ymin, xmin, ymax, xmax] if not stated otherwise.
 Also the following must be true: ymin < ymax and xmin < xmax.
-And box coordinates are normalized to [0, 1] range.
+And box coordinates are normalized to the [0, 1] range.
 """
 
 
