@@ -1,7 +1,26 @@
 import tensorflow as tf
 import numpy as np
 
+MODEL_PATH = 'model.pb'
+OUTPUT_NAMES = [
+    'boxes', 'scores', 'num_boxes',
+    'keypoint_heatmaps', 'segmentation_masks',
+    'keypoint_scores', 'keypoint_positions'
+]
 
+with tf.gfile.GFile(MODEL_PATH, 'rb') as f:
+    graph_def = tf.GraphDef()
+    graph_def.ParseFromString(f.read())
+
+graph = tf.Graph()
+with graph.as_default():
+    tf.import_graph_def(graph_def, name='import')
+
+input_image = graph.get_tensor_by_name('import/images:0')
+output_ops = {n: graph.get_tensor_by_name(f'import/{n}:0') for n in OUTPUT_NAMES}
+sess = tf.Session(graph=graph)
+outputs = sess.run(output_ops, feed_dict={input_image: np.expand_dims(np.array(image), 0)})
+outputs = {n: v[0] for n, v in outputs.items()}
 class Detector:
     def __init__(self, model_path, gpu_memory_fraction=0.25, visible_device_list='0'):
         """

@@ -61,7 +61,7 @@ def create_full_graph(images, params):
     batch_size = images.shape[0].value
     assert batch_size is not None
 
-    heatmaps = predictions['heatmaps']
+    heatmaps = predictions['keypoint_heatmaps']
     predicted_boxes = predictions['boxes']
     num_boxes = predictions['num_boxes']
 
@@ -106,7 +106,7 @@ def create_full_graph(images, params):
     keypoint_scores = tf.reduce_max(probabilities, axis=[1, 2])  # shape [num_boxes, 17]
     keypoint_positions = tf.to_float(argmax_2d(probabilities))  # shape [num_boxes, 17, 2]
 
-    scaler = tf.stack(CROP_SIZE, axis=1)
+    scaler = tf.to_float(tf.stack(CROP_SIZE, axis=0))
     keypoint_positions /= scaler
 
     predictions.update({
@@ -161,7 +161,7 @@ def convert_to_pb():
             )
 
             output_graph_def = tf.graph_util.remove_training_nodes(
-                input_graph_def, protected_nodes=OUTPUT_NAMES
+                input_graph_def, protected_nodes=OUTPUT_NAMES + [n.name for n in input_graph_def.node if 'nms' in n.name]
             )
 
             with tf.gfile.GFile(PB_FILE_PATH, 'wb') as f:
