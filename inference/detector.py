@@ -45,8 +45,8 @@ class Detector:
         assert h % 128 == 0 and w % 128 == 0
 
         feed_dict = {self.input_image: np.expand_dims(image, 0)}
-        outputs = sess.run(self.output_ops, feed_dict)
-        outputs = {n: v[0] for n, v in outputs.items()}
+        outputs = self.sess.run(self.output_ops, feed_dict)
+        outputs.update({n: v[0] for n, v in outputs.items() if n not in ['keypoint_scores', 'keypoint_positions']})
 
         n = outputs['num_boxes']
         to_keep = outputs['scores'][:n] > score_threshold

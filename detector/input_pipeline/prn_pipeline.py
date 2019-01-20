@@ -1,6 +1,6 @@
 import tensorflow as tf
 import math
-from detector.constants import SHUFFLE_BUFFER_SIZE, NUM_PARALLEL_CALLS, RESIZE_METHOD, DOWNSAMPLE
+from detector.constants import SHUFFLE_BUFFER_SIZE, NUM_PARALLEL_CALLS, DOWNSAMPLE
 from .heatmap_creation import get_heatmaps
 
 
@@ -9,7 +9,7 @@ CROP_SIZE = [56, 36]  # height and width
 
 
 class PoseResidualNetworkPipeline:
-    def __init__(self, filenames, is_training, batch_size):
+    def __init__(self, filenames, is_training, batch_size, max_keypoints=None):
         """
         During the evaluation we resize images keeping aspect ratio.
 
@@ -17,6 +17,7 @@ class PoseResidualNetworkPipeline:
             filenames: a list of strings, paths to tfrecords files.
             is_training: a boolean.
             batch_size: an integer.
+            max_keypoints: an integer or None.
         """
         self.is_training = is_training
 
@@ -39,6 +40,19 @@ class PoseResidualNetworkPipeline:
 
         dataset = dataset.flat_map(tf.data.TFRecordDataset)
         dataset = dataset.prefetch(buffer_size=batch_size)
+
+        if max_keypoints is not None:
+            # curriculum learning by sorting annotations based on number of keypoints
+            def predicate(x):
+                features = {
+                    'keypoints': tf.FixedLenSequenceFeature([], tf.int64, allow_missing=True)
+                }
+                parsed_features = tf.parse_single_example(x, features)
+                keypoints = tf.to_int32(parsed_features['keypoints'])
+                keypoints = tf.reshape(keypoints, [-1, 17, 3])
+                is_visible = tf.to_int32(keypoints[:, :, 2] > 0)
+                return tf.less_equal(tf.reduce_sum(is_visible, axis=[0, 1]), max_keypoints)
+            dataset = dataset.filter(predicate)
 
         if is_training:
             dataset = dataset.shuffle(buffer_size=SHUFFLE_BUFFER_SIZE)

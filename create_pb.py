@@ -28,7 +28,7 @@ PARAMS = {
 }
 KEYPOINTS_CHECKPOINT = 'models/run00/model.ckpt-175000'
 PERSON_DETECTOR_CHECKPOINT = 'models/run01/model.ckpt-150000'
-PRN_CHECKPOINT = 'models/run02/model.ckpt-150000'
+PRN_CHECKPOINT = 'models/run02/model.ckpt-30000'
 
 
 def create_full_graph(images, params):
@@ -107,13 +107,13 @@ def create_full_graph(images, params):
             an int tensor with shape [b, c, 2].
         """
         shape = tf.shape(tensor)
-        flat_tensor = tf.reshape(tensor, (shape[0], -1, shape[3]))
+        flat_tensor = tf.reshape(tensor, [shape[0], -1, shape[3]])
 
         argmax = tf.argmax(flat_tensor, axis=1, output_type=tf.int32)
         argmax_x = argmax // shape[2]
         argmax_y = argmax % shape[2]
 
-        return tf.stack([argmax_y, argmax_x], axis=2)
+        return tf.stack([argmax_x, argmax_y], axis=2)  # WTF?
 
     keypoint_scores = tf.reduce_max(probabilities, axis=[1, 2])  # shape [num_boxes, 17]
     keypoint_positions = tf.to_float(argmax_2d(probabilities))  # shape [num_boxes, 17, 2]

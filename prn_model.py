@@ -26,10 +26,13 @@ def model_fn(features, labels, mode, params):
 
     logits = tf.reshape(logits, [b, h * w, c])
     labels = tf.reshape(labels, [b, h * w, c])
-    losses = tf.nn.softmax_cross_entropy_with_logits(labels=labels, logits=logits, dim=1)
-    # it has shape [batch_size, 17]
+    losses = tf.losses.log_loss(
+        labels, tf.nn.softmax(logits, axis=1),
+        loss_collection=None, reduction=tf.losses.Reduction.NONE
+    )
+    # it has shape [batch_size, h * w, 17]
 
-    loss = tf.reduce_mean(losses, axis=[0, 1])
+    loss = tf.reduce_mean(losses, axis=[0, 1, 2])
     tf.losses.add_loss(loss)
     tf.summary.scalar('localization_loss', loss)
     total_loss = tf.losses.get_total_loss(add_regularization_losses=True)
@@ -46,7 +49,7 @@ def model_fn(features, labels, mode, params):
         global_step = tf.train.get_global_step()
         learning_rate = tf.train.cosine_decay(
             params['initial_learning_rate'], global_step,
-            decay_steps=params['num_steps']
+            decay_steps=params['num_steps'], alpha=1e-3
         )
         tf.summary.scalar('learning_rate', learning_rate)
 
