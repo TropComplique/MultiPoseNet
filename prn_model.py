@@ -1,5 +1,5 @@
 import tensorflow as tf
-from detector.prn import prn
+from detector import prn
 from detector.constants import MOVING_AVERAGE_DECAY
 from keypoints_model import add_weight_decay
 
@@ -10,8 +10,8 @@ def model_fn(features, labels, mode, params):
     The function is in format required by tf.estimator.
     """
 
-    is_training = mode == tf.estimator.ModeKeys.TRAIN
     assert mode != tf.estimator.ModeKeys.PREDICT
+    is_training = mode == tf.estimator.ModeKeys.TRAIN
 
     heatmaps = features  # shape [batch_size, h, w, 17]
     logits = prn(heatmaps, is_training)

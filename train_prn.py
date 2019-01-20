@@ -12,11 +12,11 @@ PARAMS = {
     'train_dataset': '/home/dan/datasets/COCO/multiposenet/train/',
     'val_dataset': '/home/dan/datasets/COCO/multiposenet/val/',
 
-    'weight_decay': 5e-5,
-    'num_steps': 150000,
-    'initial_learning_rate': 7e-4,
+    'weight_decay': 1e-4,
+    'num_steps': 100000,
+    'initial_learning_rate': 1e-4,
 
-    'batch_size': 8,
+    'batch_size': 16,
 }
 
 

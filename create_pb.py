@@ -1,6 +1,4 @@
 import tensorflow as tf
-import os
-import shutil
 from detector import RetinaNet
 from detector import KeypointSubnet
 from detector import prn
@@ -16,7 +14,7 @@ This code creates a .pb frozen inference graph.
 GPU_TO_USE = '0'
 PB_FILE_PATH = 'inference/model.pb'
 BATCH_SIZE = 1  # must be an integer
-CROP_SIZE = [56, 36]
+CROP_SIZE = [56, 36]  # used by PRN
 OUTPUT_NAMES = [
     'boxes', 'scores', 'num_boxes',
     'keypoint_heatmaps', 'segmentation_masks',
@@ -24,19 +22,34 @@ OUTPUT_NAMES = [
 ]
 PARAMS = {
     'depth_multiplier': 1.0,
-    'score_threshold': 0.3, 'iou_threshold': 0.6, 'max_boxes': 25
+    'score_threshold': 0.3,
+    'iou_threshold': 0.6,
+    'max_boxes': 25
 }
+KEYPOINTS_CHECKPOINT = 'models/run00/model.ckpt-175000'
+PERSON_DETECTOR_CHECKPOINT = 'models/run01/model.ckpt-150000'
+PRN_CHECKPOINT = 'models/run02/model.ckpt-150000'
 
 
 def create_full_graph(images, params):
     """
     Batch size must be a static value.
+    Image size must be divisible by 128.
 
     Arguments:
         images: a float tensor with shape [b, h, w, 3].
         params: a dict.
     Returns:
-        a dict with tensors that contain predictions.
+        a dict with the following keys
+        'boxes': a float tensor with shape [b, max_boxes, 4],
+            where max_boxes = max(num_boxes).
+        'scores': a float tensor with shape [b, max_boxes].
+        'num_boxes': an int tensor with shape [b].
+        'keypoint_heatmaps': a float tensor with shape [b, h / 4, w / 4, 17].
+        'segmentation_masks': a float tensor with shape [b, h / 4, w / 4].
+        'keypoint_scores': a float tensor with shape [total_num_boxes],
+            where total_num_boxes = sum(num_boxes).
+        'keypoint_positions': a float tensor with shape [total_num_boxes, 17, 2].
     """
     is_training = False
 
@@ -61,9 +74,9 @@ def create_full_graph(images, params):
     batch_size = images.shape[0].value
     assert batch_size is not None
 
-    heatmaps = predictions['keypoint_heatmaps']
-    predicted_boxes = predictions['boxes']
-    num_boxes = predictions['num_boxes']
+    heatmaps = predictions['keypoint_heatmaps']  # shape [b, h / 4, w / 4, 17]
+    predicted_boxes = predictions['boxes']  # shape [b, max_boxes, 4]
+    num_boxes = predictions['num_boxes']  # shape [b]
 
     boxes, box_ind = [], []
     for i in range(batch_size):
@@ -71,8 +84,8 @@ def create_full_graph(images, params):
         boxes.append(predicted_boxes[i][:n])
         box_ind.append(i * tf.ones([n], dtype=tf.int32))
 
-    boxes = tf.concat(boxes, axis=0)
-    box_ind = tf.concat(box_ind, axis=0)
+    boxes = tf.concat(boxes, axis=0)  # shape [num_boxes, 4]
+    box_ind = tf.concat(box_ind, axis=0)  # shape [num_boxes]
 
     crops = tf.image.crop_and_resize(
         heatmaps, boxes, box_ind,
@@ -80,10 +93,9 @@ def create_full_graph(images, params):
     )  # shape [num_boxes, 56, 36, 17]
 
     num_boxes = tf.shape(crops)[0]
-    logits = prn(crops, is_training)
+    logits = prn(crops, is_training)  # shape [num_boxes, 56, 36, 17]
 
-    spatial_area = CROP_SIZE[0] * CROP_SIZE[1]
-    logits = tf.reshape(logits, [num_boxes, spatial_area, 17])
+    logits = tf.reshape(logits, [num_boxes, CROP_SIZE[0] * CROP_SIZE[1], 17])
     probabilities = tf.nn.softmax(logits, axis=1)
     probabilities = tf.reshape(probabilities, [num_boxes] + CROP_SIZE + [17])
 
@@ -135,19 +147,19 @@ def convert_to_pb():
         predictions = create_full_graph(images, PARAMS)
 
         tf.train.init_from_checkpoint(
-            'models/run00/model.ckpt-175000',
+            KEYPOINTS_CHECKPOINT,
             {'MobilenetV1/': 'MobilenetV1/'}
         )
         tf.train.init_from_checkpoint(
-            'models/run00/model.ckpt-175000',
+            KEYPOINTS_CHECKPOINT,
             {'/': 'keypoint_subnet/'}
         )
         tf.train.init_from_checkpoint(
-            'models/run01/model.ckpt-150000',
+            PERSON_DETECTOR_CHECKPOINT,
             {'/': 'retinanet/'}
         )
         tf.train.init_from_checkpoint(
-            'models/run02/model.ckpt-150000',
+            PRN_CHECKPOINT,
             {'PRN/': 'PRN/'}
         )
         init = tf.global_variables_initializer()
@@ -160,8 +172,9 @@ def convert_to_pb():
                 output_node_names=OUTPUT_NAMES
             )
 
+            nms_nodes = [n.name for n in input_graph_def.node if 'nms' in n.name]
             output_graph_def = tf.graph_util.remove_training_nodes(
-                input_graph_def, protected_nodes=OUTPUT_NAMES + [n.name for n in input_graph_def.node if 'nms' in n.name]
+                input_graph_def, protected_nodes=OUTPUT_NAMES + nms_nodes
             )
 
             with tf.gfile.GFile(PB_FILE_PATH, 'wb') as f:
