@@ -23,16 +23,16 @@ class KeypointSubnet:
             add_coarse_features=False, scope='keypoint_fpn'
         )
         normalized_enriched_features = {
-            n: batch_norm_relu(x, is_training, name=n + '_batch_norm')
+            n: batch_norm_relu(x, is_training, name=f'{n}_batch_norm')
             for n, x in self.enriched_features.items()
         }
         # it is a dict with keys ['p2', 'p3', 'p4', 'p5']
 
         upsampled_features = []
-        with tf.variable_scope('phi_subnet', reuse=tf.AUTO_REUSE):
-            for level in range(2, 6):
-                x = normalized_enriched_features['p' + str(level)]
-                y = phi_subnet(x, is_training, level, upsample=2**(level - 2))
+        for level in range(2, 6):
+            with tf.variable_scope(f'phi_subnet_{level}'):
+                x = normalized_enriched_features[f'p{level}']
+                y = phi_subnet(x, is_training, upsample=2**(level - 2))
                 upsampled_features.append(y)
 
         upsampled_features = tf.concat(upsampled_features, axis=1 if DATA_FORMAT == 'channels_first' else 3)
@@ -66,20 +66,20 @@ class KeypointSubnet:
         return {'keypoint_heatmaps': heatmaps, 'segmentation_masks': segmentation_masks}
 
 
-def phi_subnet(x, is_training, level, upsample):
+def phi_subnet(x, is_training, upsample):
     """
     Arguments:
         x: a float tensor with shape [batch_size, channels, height, width].
         is_training: a boolean.
-        level, upsample: integers.
+        upsample: an integer.
     Returns:
         a float tensor with shape [batch_size, depth, upsample * height, upsample * width].
     """
 
     x = conv2d_same(x, DEPTH, kernel_size=3, name='conv1')
-    x = batch_norm_relu(x, is_training, name='bn1_for_level_%d' % level)
+    x = batch_norm_relu(x, is_training, name='bn1')
     x = conv2d_same(x, DEPTH, kernel_size=3, name='conv2')
-    x = batch_norm_relu(x, is_training, name='bn2_for_level_%d' % level)
+    x = batch_norm_relu(x, is_training, name='bn2')
 
     if DATA_FORMAT == 'channels_first':
         x = tf.transpose(x, [0, 2, 3, 1])
