@@ -4,15 +4,12 @@ from detector.constants import SHUFFLE_BUFFER_SIZE, NUM_PARALLEL_CALLS, DOWNSAMP
 from .heatmap_creation import get_heatmaps
 
 
-SIGMA = 1.5
 CROP_SIZE = [56, 36]  # height and width
 
 
 class PoseResidualNetworkPipeline:
     def __init__(self, filenames, is_training, batch_size, max_keypoints=None):
         """
-        During the evaluation we resize images keeping aspect ratio.
-
         Arguments:
             filenames: a list of strings, paths to tfrecords files.
             is_training: a boolean.
@@ -20,6 +17,7 @@ class PoseResidualNetworkPipeline:
             max_keypoints: an integer or None.
         """
         self.is_training = is_training
+        self.max_keypoints = max_keypoints
 
         def get_num_samples(filename):
             return sum(1 for _ in tf.python_io.tf_record_iterator(filename))
@@ -41,21 +39,9 @@ class PoseResidualNetworkPipeline:
         dataset = dataset.flat_map(tf.data.TFRecordDataset)
         dataset = dataset.prefetch(buffer_size=batch_size)
 
-        if max_keypoints is not None:
-            # curriculum learning by sorting annotations based on number of keypoints
-            def predicate(x):
-                features = {
-                    'keypoints': tf.FixedLenSequenceFeature([], tf.int64, allow_missing=True)
-                }
-                parsed_features = tf.parse_single_example(x, features)
-                keypoints = tf.to_int32(parsed_features['keypoints'])
-                keypoints = tf.reshape(keypoints, [-1, 17, 3])
-                is_visible = tf.to_int32(keypoints[:, :, 2] > 0)
-                return tf.less_equal(tf.reduce_sum(is_visible, axis=[0, 1]), max_keypoints)
-            dataset = dataset.filter(predicate)
-
         if is_training:
             dataset = dataset.shuffle(buffer_size=SHUFFLE_BUFFER_SIZE)
+
         dataset = dataset.repeat(None if is_training else 1)
         dataset = dataset.map(self._parse_and_preprocess, num_parallel_calls=NUM_PARALLEL_CALLS)
         dataset = dataset.apply(tf.data.experimental.unbatch())
@@ -98,9 +84,22 @@ class PoseResidualNetworkPipeline:
         keypoints = tf.to_int32(parsed_features['keypoints'])
         keypoints = tf.reshape(keypoints, [num_persons, 17, 3])
 
+        if self.max_keypoints is not None:
+
+            # curriculum learning by sorting
+            # annotations based on number of keypoints
+
+            is_visible = tf.to_int32(keypoints[:, :, 2] > 0)  # shape [num_persons, 17]
+            is_good = tf.less_equal(tf.reduce_sum(is_visible, axis=1), self.max_keypoints)
+
+            keypoints = tf.boolean_mask(keypoints, is_good)
+            boxes = tf.boolean_mask(boxes, is_good)
+            num_persons = tf.shape(boxes)[0]
+
+        sigma = tf.random_uniform([], minval=0.7, maxval=1.5)
         heatmaps = tf.py_func(
-            lambda k, w, h: get_heatmaps(k, SIGMA, w, h, DOWNSAMPLE),
-            [tf.to_float(keypoints), width, height],
+            lambda k, s, w, h: get_heatmaps(k, s, w, h, DOWNSAMPLE),
+            [tf.to_float(keypoints), sigma, width, height],
             tf.float32, stateful=False
         )
         heatmaps.set_shape([None, None, 17])
@@ -135,7 +134,7 @@ class PoseResidualNetworkPipeline:
             scaler = tf.to_float(tf.stack([CROP_SIZE[0]/h, CROP_SIZE[1]/w], axis=0))
             keypoints *= scaler
             keypoints = tf.to_int32(tf.floor(keypoints))  # shape [num_visible, 2]
-            
+
             y, x = tf.unstack(keypoints, axis=1)
             y = tf.clip_by_value(y, 0, CROP_SIZE[0] - 1)
             x = tf.clip_by_value(x, 0, CROP_SIZE[1] - 1)
