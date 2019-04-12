@@ -5,7 +5,7 @@ from detector.input_pipeline import KeypointPipeline as Pipeline
 tf.logging.set_verbosity('INFO')
 
 
-GPU_TO_USE = '0'
+GPU_TO_USE = '1'
 PARAMS = {
     'model_dir': 'models/run00/',
     'train_dataset': '/home/dan/datasets/COCO/multiposenet/train/',

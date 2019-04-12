@@ -6,7 +6,7 @@ from detector.input_pipeline import DetectorPipeline as Pipeline
 tf.logging.set_verbosity('INFO')
 
 
-GPU_TO_USE = '0'
+GPU_TO_USE = '1'
 PARAMS = {
     'model_dir': 'models/run01/',
     'train_dataset': '/home/dan/datasets/COCO/multiposenet/train/',
