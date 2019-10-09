@@ -1,10 +1,10 @@
-import tensorflow as tf
 import math
+import tensorflow.compat.v1 as tf
 from detector.constants import SHUFFLE_BUFFER_SIZE, NUM_PARALLEL_CALLS, RESIZE_METHOD, DOWNSAMPLE, DIVISOR
-from .random_crop import random_crop
-from .random_rotation import random_rotation
-from .color_augmentations import random_color_manipulations, random_pixel_value_scale
-from .heatmap_creation import get_heatmaps
+from detector.input_pipeline.random_crop import random_crop
+from detector.input_pipeline.random_rotation import random_rotation
+from detector.input_pipeline.color_augmentations import random_color_manipulations, random_pixel_value_scale
+from detector.input_pipeline.heatmap_creation import get_heatmaps
 
 
 """Input pipeline for training or evaluating networks for heatmap regression."""

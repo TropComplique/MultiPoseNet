@@ -1,5 +1,5 @@
-import tensorflow as tf
 import math
+import tensorflow.compat.v1 as tf
 from detector.constants import DOWNSAMPLE
 
 

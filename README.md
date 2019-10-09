@@ -14,5 +14,6 @@ This an implementation of [MultiPoseNet: Fast Multi-Person Pose Estimation using
 ## Requirements
 1. tensorflow 1.14
 2. Pillow 6.1, opencv-python 4.1
-3. numpy 1.16, tqdm 4.36, Cython 0.29
-4. [pycocotools](https://github.com/cocodataset/cocoapi/)
+3. numpy 1.16, Cython 0.29
+4. matplotlib 3.1, tqdm 4.36
+5. [pycocotools](https://github.com/cocodataset/cocoapi/)

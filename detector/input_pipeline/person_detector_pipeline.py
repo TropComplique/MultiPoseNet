@@ -1,16 +1,14 @@
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 from detector.constants import SHUFFLE_BUFFER_SIZE, NUM_PARALLEL_CALLS, RESIZE_METHOD, DIVISOR
-from .random_crop import random_crop
-from .color_augmentations import random_color_manipulations, random_pixel_value_scale
-
-
-"""
-Input pipeline for training or evaluating object detectors.
-It is assumed that all boxes are of the same class.
-"""
+from detector.input_pipeline.random_crop import random_crop
+from detector.input_pipeline.color_augmentations import random_color_manipulations, random_pixel_value_scale
 
 
 class DetectorPipeline:
+    """
+    Input pipeline for training or evaluating object detectors.
+    It is assumed that all boxes are of the same class.
+    """
     def __init__(self, filenames, is_training, params):
         """
         During the evaluation we resize images keeping aspect ratio.
@@ -56,6 +54,7 @@ class DetectorPipeline:
 
         if is_training:
             dataset = dataset.shuffle(buffer_size=SHUFFLE_BUFFER_SIZE)
+
         dataset = dataset.repeat(None if is_training else 1)
         dataset = dataset.map(self._parse_and_preprocess, num_parallel_calls=NUM_PARALLEL_CALLS)
 
