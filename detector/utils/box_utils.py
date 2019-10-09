@@ -1,4 +1,4 @@
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 from detector.constants import EPSILON, SCALE_FACTORS
 
 

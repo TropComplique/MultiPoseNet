@@ -1,16 +1,19 @@
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 import tensorflow.contrib.slim as slim
 from detector.constants import DATA_FORMAT
 
 
-BATCH_NORM_MOMENTUM = 0.97
+BATCH_NORM_MOMENTUM = 0.99
 BATCH_NORM_EPSILON = 1e-3
 
 
 def mobilenet_v1(images, is_training, depth_multiplier=1.0):
     """
+    This implementation works with checkpoints from here:
+    https://github.com/tensorflow/models/blob/master/research/slim/nets/mobilenet_v1.md
+
     Arguments:
-        images: a float tensor with shape [batch_size, height, width, 3],
+        images: a float tensor with shape [b, h, w, 3],
             a batch of RGB images with pixel values in the range [0, 1].
         is_training: a boolean.
         depth_multiplier: a float number, multiplier for the number of filters in a layer.

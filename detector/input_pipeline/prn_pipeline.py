@@ -1,7 +1,6 @@
-import tensorflow as tf
-import math
+import tensorflow.compat.v1 as tf
 from detector.constants import SHUFFLE_BUFFER_SIZE, NUM_PARALLEL_CALLS, DOWNSAMPLE
-from .heatmap_creation import get_heatmaps
+from detector.input_pipeline.heatmap_creation import get_heatmaps
 
 
 CROP_SIZE = [56, 36]  # height and width

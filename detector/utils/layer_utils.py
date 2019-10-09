@@ -1,5 +1,9 @@
-import tensorflow as tf
-from detector.constants import BATCH_NORM_MOMENTUM, BATCH_NORM_EPSILON, DATA_FORMAT
+import tensorflow.compat.v1 as tf
+from detector.constants import DATA_FORMAT
+
+
+BATCH_NORM_MOMENTUM = 0.99
+BATCH_NORM_EPSILON = 1e-3
 
 
 def batch_norm_relu(x, is_training, use_relu=True, name=None):
@@ -12,32 +16,24 @@ def batch_norm_relu(x, is_training, use_relu=True, name=None):
     return x if not use_relu else tf.nn.relu(x)
 
 
-def conv2d_same(x, num_filters, kernel_size=3, stride=1, rate=1, name=None):
-    if stride == 1:
-        return tf.layers.conv2d(
-            inputs=x, filters=num_filters,
-            kernel_size=(kernel_size, kernel_size),
-            strides=(stride, stride), dilation_rate=(rate, rate),
-            padding='same', use_bias=False,
-            kernel_initializer=tf.variance_scaling_initializer(),
-            data_format=DATA_FORMAT, name=name
-        )
-    else:
-        kernel_size_effective = kernel_size + (kernel_size - 1) * (rate - 1)
-        pad_total = kernel_size_effective - 1
-        pad_beg = pad_total // 2
-        pad_end = pad_total - pad_beg
+def conv2d_same(x, num_filters, kernel_size=3, stride=1, name=None):
+
+    assert kernel_size in [1, 3]
+    assert stride in [1, 2]
+
+    if kernel_size == 3:
 
         if DATA_FORMAT == 'channels_first':
-            paddings = [[0, 0], [0, 0], [pad_beg, pad_end], [pad_beg, pad_end]]
+            paddings = [[0, 0], [0, 0], [1, 1], [1, 1]]
         else:
-            paddings = [[0, 0], [pad_beg, pad_end], [pad_beg, pad_end], [0, 0]]
+            paddings = [[0, 0], [1, 1], [1, 1], [0, 0]]
 
-        return tf.layers.conv2d(
-            inputs=tf.pad(x, paddings), filters=num_filters,
-            kernel_size=(kernel_size, kernel_size),
-            strides=(stride, stride), dilation_rate=(rate, rate),
-            padding='valid', use_bias=False,
-            kernel_initializer=tf.variance_scaling_initializer(),
-            data_format=DATA_FORMAT, name=name
-        )
+        x = tf.pad(x, paddings)
+
+    return tf.layers.conv2d(
+        inputs=x, filters=num_filters,
+        kernel_size=kernel_size, strides=stride,
+        padding='valid', use_bias=False,
+        kernel_initializer=tf.variance_scaling_initializer(),
+        data_format=DATA_FORMAT, name=name
+    )

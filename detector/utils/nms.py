@@ -1,6 +1,6 @@
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 from detector.constants import PARALLEL_ITERATIONS
-from .box_utils import decode
+from detector.utils.box_utils import decode
 
 
 def batch_non_max_suppression(

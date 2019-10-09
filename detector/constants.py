@@ -1,5 +1,4 @@
-import tensorflow as tf
-
+import tensorflow.compat.v1 as tf
 
 # this is used for polyak averaging
 MOVING_AVERAGE_DECAY = 0.993
@@ -7,11 +6,7 @@ MOVING_AVERAGE_DECAY = 0.993
 # all image sizes must be divisible by this value
 DIVISOR = 128
 
-# it is important to set this right
-BATCH_NORM_MOMENTUM = 0.993
-BATCH_NORM_EPSILON = 1e-5
-
-# or 'channels_last'
+# 'channels_first' or 'channels_last'
 DATA_FORMAT = 'channels_first'
 
 # number of body landmarks that will be predicted

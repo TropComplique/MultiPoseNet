@@ -1,24 +1,19 @@
 import os
-import shutil
-import numpy as np
-import tensorflow as tf
-from tqdm import tqdm
-import cv2
-import random
-import math
 import io
+import math
+import random
+import shutil
+import cv2
+import numpy as np
+from tqdm import tqdm
 from PIL import Image
-
-# you can get this from here:
-# https://github.com/cocodataset/cocoapi
-import sys
-sys.path.append('/home/dan/work/cocoapi/PythonAPI/')
+import tensorflow.compat.v1 as tf
 from pycocotools.coco import COCO
 
 
 """
 This script creates training and validation data for
-person detection and keypoint heatmap regression.
+person detection and keypoints heatmap regression.
 
 Just run:
 python create_tfrecords.py
@@ -33,7 +28,7 @@ IMAGES_DIR = '/home/dan/datasets/COCO/images/'
 ANNOTATIONS_DIR = '/home/dan/datasets/COCO/annotations/'
 # (it contains files person_keypoints_*.json)
 
-# path where converted data will be stored
+# path where the converted data will be stored
 RESULT_PATH = '/home/dan/datasets/COCO/multiposenet/'
 
 # because dataset is big we will split it into parts

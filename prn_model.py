@@ -1,4 +1,4 @@
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 from detector import prn
 from detector.constants import MOVING_AVERAGE_DECAY
 from keypoints_model import add_weight_decay
@@ -13,28 +13,31 @@ def model_fn(features, labels, mode, params):
     assert mode != tf.estimator.ModeKeys.PREDICT
     is_training = mode == tf.estimator.ModeKeys.TRAIN
 
-    heatmaps = features  # shape [batch_size, h, w, 17]
+    heatmaps = features  # shape [b, h, w, c]
     logits = prn(heatmaps, is_training)
-    # it has shape [batch_size, h, w, 17]
+    # it has shape [b, h, w, c]
 
     with tf.name_scope('weight_decay'):
         add_weight_decay(params['weight_decay'])
         regularization_loss = tf.losses.get_regularization_loss()
 
     b = tf.shape(heatmaps)[0]
-    h, w, c = heatmaps.shape.as_list()[1:]  # must be static
+    _, h, w, c = heatmaps.shape.as_list()
 
-    logits = tf.reshape(logits, [b, h * w, c])
     labels = tf.reshape(labels, [b, h * w, c])
+    logits = tf.reshape(logits, [b, h * w, c])
+    probabilities = tf.nn.softmax(logits, axis=1)
+
     losses = tf.losses.log_loss(
-        labels, tf.nn.softmax(logits, axis=1),
-        loss_collection=None, reduction=tf.losses.Reduction.NONE
+        labels, probabilities,
+        loss_collection=None,
+        reduction=tf.losses.Reduction.NONE
     )
-    # it has shape [batch_size, h * w, 17]
+    # it has shape [b, h * w, c]
 
     loss = tf.reduce_mean(losses, axis=[0, 1, 2])
     tf.losses.add_loss(loss)
-    tf.summary.scalar('localization_loss', loss)
+    tf.summary.scalar('log_loss', loss)
     total_loss = tf.losses.get_total_loss(add_regularization_losses=True)
 
     if mode == tf.estimator.ModeKeys.EVAL:

@@ -1,7 +1,6 @@
-import math
-import tensorflow as tf
-from .constants import DATA_FORMAT
-from .utils import batch_norm_relu, conv2d_same
+import tensorflow.compat.v1 as tf
+from detector.constants import DATA_FORMAT
+from detector.utils import batch_norm_relu, conv2d_same
 
 
 def retinanet_box_predictor(
@@ -105,8 +104,9 @@ def class_net(x, is_training, depth, level, num_anchors_per_location):
         x = conv2d_same(x, depth, kernel_size=3, name='conv3x3_%d' % i)
         x = batch_norm_relu(x, is_training, name='batch_norm_%d_for_level_%d' % (i, level))
 
+    import math
     p = 0.01  # probability of foreground
-    # sigmoid(-log((1 - p) / p)) = p
+    # note that sigmoid(-log((1 - p) / p)) = p
 
     logits = tf.layers.conv2d(
         x, num_anchors_per_location,

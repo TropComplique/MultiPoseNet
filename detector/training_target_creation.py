@@ -1,5 +1,5 @@
-import tensorflow as tf
-from .utils import encode, iou
+import tensorflow.compat.v1 as tf
+from detector.utils import encode, iou
 
 
 def get_training_targets(

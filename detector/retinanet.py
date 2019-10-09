@@ -1,10 +1,10 @@
-import tensorflow as tf
-from .constants import PARALLEL_ITERATIONS, POSITIVES_THRESHOLD, NEGATIVES_THRESHOLD
-from .utils import batch_non_max_suppression, batch_norm_relu
-from .training_target_creation import get_training_targets
-from .box_predictor import retinanet_box_predictor
-from .anchor_generator import AnchorGenerator
-from .fpn import fpn
+import tensorflow.compat.v1 as tf
+from detector.constants import PARALLEL_ITERATIONS, POSITIVES_THRESHOLD, NEGATIVES_THRESHOLD
+from detector.utils import batch_non_max_suppression, batch_norm_relu
+from detector.training_target_creation import get_training_targets
+from detector.box_predictor import retinanet_box_predictor
+from detector.anchor_generator import AnchorGenerator
+from detector.fpn import feature_pyramid_network
 
 
 DEPTH = 128
@@ -21,13 +21,13 @@ class RetinaNet:
             params: a dict.
         """
 
-        enriched_features = fpn(
+        enriched_features = feature_pyramid_network(
             backbone_features, is_training,
             depth=DEPTH, min_level=3,
             add_coarse_features=True, scope='fpn'
         )
         enriched_features = {
-            n: batch_norm_relu(x, is_training, name=n + '_batch_norm')
+            n: batch_norm_relu(x, is_training, name=f'{n}_batch_norm')
             for n, x in enriched_features.items()
         }
 
@@ -45,7 +45,7 @@ class RetinaNet:
         num_anchors_per_location = anchor_generator.num_anchors_per_location
 
         self.raw_predictions = retinanet_box_predictor(
-            [enriched_features['p' + str(i)] for i in range(3, 8)],
+            [enriched_features[f'p{i}'] for i in range(3, 8)],
             is_training, num_anchors_per_location=num_anchors_per_location,
             depth=64, min_level=3
         )

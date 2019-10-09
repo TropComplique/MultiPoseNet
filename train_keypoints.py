@@ -1,5 +1,5 @@
 import os
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 from keypoints_model import model_fn, RestoreMovingAverageHook
 from detector.input_pipeline import KeypointPipeline as Pipeline
 tf.logging.set_verbosity('INFO')

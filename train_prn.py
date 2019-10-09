@@ -1,8 +1,9 @@
 import os
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 from keypoints_model import RestoreMovingAverageHook
+from detector.input_pipeline import PoseResidualNetworkPipeline
 from prn_model import model_fn
-from detector.input_pipeline import PoseResidualNetworkPipeline as Pipeline
+
 tf.logging.set_verbosity('INFO')
 
 
@@ -31,7 +32,7 @@ def get_input_fn(is_training=True, max_keypoints=None):
 
     def input_fn():
         with tf.device('/cpu:0'), tf.name_scope('input_pipeline'):
-            pipeline = Pipeline(filenames, is_training, batch_size, max_keypoints)
+            pipeline = PoseResidualNetworkPipeline(filenames, is_training, batch_size, max_keypoints)
         return pipeline.dataset
 
     return input_fn
