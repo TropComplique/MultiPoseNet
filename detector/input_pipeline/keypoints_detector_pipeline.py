@@ -46,10 +46,11 @@ class KeypointPipeline:
 
         if is_training:
             dataset = dataset.shuffle(buffer_size=SHUFFLE_BUFFER_SIZE)
-        dataset = dataset.repeat(None if is_training else 1)
-        dataset = dataset.map(self.parse_and_preprocess, num_parallel_calls=1)#NUM_PARALLEL_CALLS)
 
-        dataset = dataset.batch(batch_size)
+        dataset = dataset.repeat(None if is_training else 1)
+        dataset = dataset.map(self.parse_and_preprocess, num_parallel_calls=NUM_PARALLEL_CALLS)
+
+        dataset = dataset.batch(batch_size, drop_remainder=True)
         dataset = dataset.prefetch(buffer_size=1)
 
         self.dataset = dataset
@@ -86,7 +87,13 @@ class KeypointPipeline:
             [keypoints, boxes, image_width, image_height],
             tf.float32, stateful=False
         )
-        heatmaps.set_shape([None, None, 17])
+
+        if self.is_training:
+            import math
+            height, width = self.image_size
+            h = math.ceil(height/DOWNSAMPLE)
+            w = math.ceil(width/DOWNSAMPLE)
+            heatmaps.set_shape([h, w, 17])
 
         features = {'images': image}
         labels = {
@@ -155,7 +162,7 @@ class KeypointPipeline:
 
 
 def augmentation(image, masks, boxes, keypoints, image_size):
-    image, masks, boxes, keypoints = random_image_rotation(image, masks, boxes, keypoints, max_angle=45, probability=0.9)
+    image, masks, boxes, keypoints = random_image_rotation(image, masks, boxes, keypoints, max_angle=45, probability=0.7)
     image, masks, boxes, keypoints = randomly_crop_and_resize(image, masks, boxes, keypoints, image_size, probability=0.9)
     image = random_color_manipulations(image, probability=0.5, grayscale_probability=0.1)
     image = random_pixel_value_scale(image, probability=0.1, minval=0.9, maxval=1.1)
@@ -322,18 +329,19 @@ def randomly_crop_and_resize(image, masks, boxes, keypoints, image_size, probabi
         do_it, lambda: crop(image, boxes, keypoints),
         lambda: (image, boxes, keypoints, whole_image_window)
     )
-    def correct_keypoints(image, keypoints):
+
+    def correct_keypoints(image_shape, keypoints):
         """
         Arguments:
-            image: a float tensor with shape [height, width, 3].
+            image_shape: an int tensor with shape [3].
             keypoints: an int tensor with shape [num_persons, 17, 3].
         Returns:
             an int tensor with shape [num_persons, 17, 3].
         """
         y, x, v = tf.split(keypoints, 3, axis=2)
 
-        shape = tf.shape(image)
-        height, width = shape[0], shape[1]
+        height = image_shape[0]
+        width = image_shape[1]
 
         coordinate_violations = tf.concat([
             tf.less(y, 0), tf.less(x, 0),
@@ -348,10 +356,45 @@ def randomly_crop_and_resize(image, masks, boxes, keypoints, image_size, probabi
         v *= tf.to_int32(valid_indicator)
         keypoints = tf.concat([y, x, v], axis=2)
         return keypoints
-    keypoints = correct_keypoints(image, keypoints)
-    shape = tf.to_float(tf.shape(image))
-    height, width = shape[0], shape[1]
-    
+
+    def rescale(boxes, keypoints, old_shape, new_shape):
+        """
+        Arguments:
+            boxes: a float tensor with shape [num_persons, 4].
+            keypoints: an int tensor with shape [num_persons, 17, 3].
+            old_shape, new_shape: int tensors with shape [3].
+        Returns:
+            a float tensor with shape [num_persons, 4].
+            an int tensor with shape [num_persons, 17, 3].
+        """
+        points, v = tf.split(keypoints, [2, 1], axis=2)
+        points = tf.to_float(points)
+
+        old_shape = tf.to_float(old_shape)
+        new_shape = tf.to_float(new_shape)
+        old_height, old_width = old_shape[0], old_shape[1]
+        new_height, new_width = new_shape[0], new_shape[1]
+
+        scaler = tf.stack([new_height/old_height, new_width/old_width])
+        points *= scaler
+
+        scaler = tf.stack([new_height, new_width])
+        scaler = tf.concat(2 * [scaler], axis=0)
+        boxes *= scaler
+
+        new_height = tf.to_int32(new_height)
+        new_width = tf.to_int32(new_width)
+
+        points = tf.to_int32(tf.round(points))
+        y, x = tf.split(points, 2, axis=2)
+        y = tf.clip_by_value(y, 0, new_height - 1)
+        x = tf.clip_by_value(x, 0, new_width - 1)
+        keypoints = tf.concat([y, x, v], axis=2)
+        return boxes, keypoints
+
+    old_shape = tf.shape(image)
+    keypoints = correct_keypoints(old_shape, keypoints)
+
     h, w = image_size  # image size that will be used for training
     image = tf.image.resize_images(image, [h, w], method=RESIZE_METHOD)
 
@@ -367,38 +410,7 @@ def randomly_crop_and_resize(image, masks, boxes, keypoints, image_size, probabi
     )
     masks = masks[0]
 
-    def rescale(boxes, keypoints, old_shape, new_shape):
-        """
-        Arguments:
-            image: a float tensor with shape [height, width, 3].
-            keypoints: an int tensor with shape [num_persons, 17, 3].
-        Returns:
-            an int tensor with shape [num_persons, 17, 3].
-        """
-        points, v = tf.split(keypoints, [2, 1], axis=2)
-        points = tf.to_float(points)
-        
-        old_shape = tf.to_float(old_shape)
-        new_shape = tf.to_float(new_shape)
-        old_height, old_width = old_shape[0], old_shape[1]
-        new_height, new_width = new_shape[0], new_shape[1]
-
-        scaler = tf.to_float(tf.stack([new_height/old_height, new_width/old_width]))
-        points *= scaler
-        
-        scaler = tf.to_float(tf.stack([new_height, new_width]))
-        scaler = tf.concat(2 * [scaler], axis=0)
-        boxes *= scaler
-
-        points = tf.to_int32(tf.round(points))
-        y, x = tf.split(points, 2, axis=2)
-        y = tf.clip_by_value(y, 0, tf.to_int32(new_height) - 1)
-        x = tf.clip_by_value(x, 0, tf.to_int32(new_width) - 1)
-        keypoints = tf.concat([y, x, v], axis=2)
-        return boxes, keypoints
-
-    boxes, keypoints = rescale(boxes, keypoints, tf.stack([height, width]), tf.shape(image))
-
+    boxes, keypoints = rescale(boxes, keypoints, old_shape, tf.shape(image))
     return image, masks, boxes, keypoints
 
 
@@ -413,7 +425,7 @@ def random_flip_left_right(image, masks, boxes, keypoints):
         width = tf.shape(image)[1]
         flipped_x = width - 1 - x
         flipped_keypoints = tf.stack([y, flipped_x, v], axis=2)
-        
+
         width = tf.to_float(width)
         ymin, xmin, ymax, xmax = tf.unstack(boxes, axis=1)
         flipped_boxes = tf.stack([ymin, width - xmax, ymax, width - xmin], axis=1)
@@ -430,6 +442,7 @@ def random_flip_left_right(image, masks, boxes, keypoints):
         13: 'left knee', 14: 'right knee',
         15: 'left ankle', 16: 'right ankle'
         """
+
         correct_order = tf.constant([0, 2, 1, 4, 3, 6, 5, 8, 7, 10, 9, 12, 11, 14, 13, 16, 15])
         flipped_keypoints = tf.gather(flipped_keypoints, correct_order, axis=1)
 

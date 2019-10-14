@@ -6,7 +6,7 @@ from scipy import signal
 def get_heatmaps(keypoints, boxes, width, height, downsample):
     """
     Arguments:
-        keypoints: a numpy float array with shape [num_persons, 17, 3].
+        keypoints: a numpy int array with shape [num_persons, 17, 3].
             It is in format (y, x, visibility),
             where coordinates `y, x` are in the ranges
             [0, height - 1] and [0, width - 1].
@@ -18,11 +18,14 @@ def get_heatmaps(keypoints, boxes, width, height, downsample):
     Returns:
         a numpy float array with shape [height/downsample, width/downsample, 17].
     """
-    min_sigma, max_sigma = 2.0, 4.0
 
+    min_sigma, max_sigma = 2.0, 4.0
+    scaler = np.array([height - 1.0, width - 1.0], dtype=np.float32)
+    keypoints = keypoints.astype(np.float32)
+
+    # compute output size
     h = math.ceil(height / downsample)
     w = math.ceil(width / downsample)
-    scaler = np.array([height - 1.0, width - 1.0], dtype=np.float32)
 
     ymin, xmin, ymax, xmax = np.split(boxes, 4, axis=1)
     # they have shape [num_persons, 1]
@@ -48,7 +51,7 @@ def get_heatmaps(keypoints, boxes, width, height, downsample):
             continue
 
         person_id = np.where(is_visible)[0]
-        body_part = keypoints[is_visible, i, :2].astype('float32')
+        body_part = keypoints[is_visible, i, :2]
         # it has shape [num_visible, 2]
 
         # to the [0, 1] range
@@ -56,8 +59,10 @@ def get_heatmaps(keypoints, boxes, width, height, downsample):
 
         heatmaps_for_part = []
         for i in range(num_visible):
+
             kernel = kernels[person_id[i]]
             y, x = body_part[i]
+
             heatmap = create_heatmap(y, x, kernel, w, h)
             heatmaps_for_part.append(heatmap)
 
@@ -67,9 +72,12 @@ def get_heatmaps(keypoints, boxes, width, height, downsample):
     return heatmaps
 
 
-def get_kernel(std=3):
+def get_kernel(std):
     """Returns a 2D Gaussian kernel array."""
+
     k = np.ceil(np.sqrt(- 2.0 * std**2 * np.log(0.01)))
+    # it is true that exp(- 0.5 * k**2 / std**2) < 0.01
+
     size = 2 * int(k) + 1
     x = signal.windows.gaussian(size, std=std).reshape([size, 1])
     x = np.outer(x, x).astype(np.float32)
@@ -78,16 +86,15 @@ def get_kernel(std=3):
 
 def create_heatmap(y, x, kernel, width, height):
     """
-    It is assumed that the point coordinates
-    are normalized to the [0, 1] range.
-    
     Arguments:
         y, x: float numbers, normalized to the [0, 1] range.
-        sigma: a float number.
+        kernel: a numpy float array with shape [2 * k + 1, 2 * k + 1].
         width, height: integers.
     Returns:
         a numpy float array with shape [height, width].
     """
+
+    # half kernel size
     k = (kernel.shape[0] - 1) // 2
 
     x = x * (width - 1)
@@ -100,11 +107,11 @@ def create_heatmap(y, x, kernel, width, height):
 
     shape = [height + 2 * k, width + 2 * k]
     heatmap = np.zeros(shape, dtype=np.float32)
-    
+
     # shift coordinates
     xmin, ymin = xmin + k, ymin + k
     xmax, ymax = xmax + k, ymax + k
-    
+
     heatmap[ymin:(ymax + 1), xmin:(xmax + 1)] = kernel
     heatmap = heatmap[k:-k, k:-k]
 

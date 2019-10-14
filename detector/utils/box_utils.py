@@ -19,12 +19,11 @@ def iou(boxes1, boxes2):
     Returns:
         a float tensor with shape [N, M] representing pairwise iou scores.
     """
-    with tf.name_scope('iou'):
-        intersections = intersection(boxes1, boxes2)
-        areas1 = area(boxes1)
-        areas2 = area(boxes2)
-        unions = tf.expand_dims(areas1, 1) + tf.expand_dims(areas2, 0) - intersections
-        return tf.clip_by_value(tf.divide(intersections, unions + EPSILON), 0.0, 1.0)
+    intersections = intersection(boxes1, boxes2)
+    areas1 = area(boxes1)
+    areas2 = area(boxes2)
+    unions = tf.expand_dims(areas1, 1) + tf.expand_dims(areas2, 0) - intersections
+    return tf.clip_by_value(tf.divide(intersections, unions + EPSILON), 0.0, 1.0)
 
 
 def intersection(boxes1, boxes2):
@@ -73,7 +72,7 @@ def to_center_coordinates(boxes):
     """
     ymin, xmin, ymax, xmax = tf.unstack(boxes, axis=1)
     h, w = ymax - ymin, xmax - xmin
-    cy, cx = ymin + 0.5*h, xmin + 0.5*w
+    cy, cx = ymin + 0.5 * h, xmin + 0.5 * w
     return [cy, cx, h, w]
 
 
@@ -87,28 +86,27 @@ def encode(boxes, anchors):
         a float tensor with shape [N, 4],
         anchor-encoded boxes of the format [ty, tx, th, tw].
     """
-    with tf.name_scope('encode_groundtruth'):
 
-        ycenter_a, xcenter_a, ha, wa = to_center_coordinates(anchors)
-        ycenter, xcenter, h, w = to_center_coordinates(boxes)
+    ycenter_a, xcenter_a, ha, wa = to_center_coordinates(anchors)
+    ycenter, xcenter, h, w = to_center_coordinates(boxes)
 
-        # to avoid NaN in division and log below
-        ha += EPSILON
-        wa += EPSILON
-        h += EPSILON
-        w += EPSILON
+    # to avoid NaN in division and log below
+    ha += EPSILON
+    wa += EPSILON
+    h += EPSILON
+    w += EPSILON
 
-        ty = (ycenter - ycenter_a)/ha
-        tx = (xcenter - xcenter_a)/wa
-        th = tf.log(h / ha)
-        tw = tf.log(w / wa)
+    ty = (ycenter - ycenter_a)/ha
+    tx = (xcenter - xcenter_a)/wa
+    th = tf.log(h / ha)
+    tw = tf.log(w / wa)
 
-        ty *= SCALE_FACTORS[0]
-        tx *= SCALE_FACTORS[1]
-        th *= SCALE_FACTORS[2]
-        tw *= SCALE_FACTORS[3]
+    ty *= SCALE_FACTORS[0]
+    tx *= SCALE_FACTORS[1]
+    th *= SCALE_FACTORS[2]
+    tw *= SCALE_FACTORS[3]
 
-        return tf.stack([ty, tx, th, tw], axis=1)
+    return tf.stack([ty, tx, th, tw], axis=1)
 
 
 def decode(codes, anchors):
@@ -122,21 +120,20 @@ def decode(codes, anchors):
         a float tensor with shape [N, 4],
         bounding boxes of the format [ymin, xmin, ymax, xmax].
     """
-    with tf.name_scope('decode_predictions'):
 
-        ycenter_a, xcenter_a, ha, wa = to_center_coordinates(anchors)
-        ty, tx, th, tw = tf.unstack(codes, axis=1)
+    ycenter_a, xcenter_a, ha, wa = to_center_coordinates(anchors)
+    ty, tx, th, tw = tf.unstack(codes, axis=1)
 
-        ty /= SCALE_FACTORS[0]
-        tx /= SCALE_FACTORS[1]
-        th /= SCALE_FACTORS[2]
-        tw /= SCALE_FACTORS[3]
+    ty /= SCALE_FACTORS[0]
+    tx /= SCALE_FACTORS[1]
+    th /= SCALE_FACTORS[2]
+    tw /= SCALE_FACTORS[3]
 
-        h = tf.exp(th) * ha
-        w = tf.exp(tw) * wa
-        ycenter = ty * ha + ycenter_a
-        xcenter = tx * wa + xcenter_a
+    h = tf.exp(th) * ha
+    w = tf.exp(tw) * wa
+    ycenter = ty * ha + ycenter_a
+    xcenter = tx * wa + xcenter_a
 
-        ymin, xmin = ycenter - 0.5*h, xcenter - 0.5*w
-        ymax, xmax = ycenter + 0.5*h, xcenter + 0.5*w
-        return tf.stack([ymin, xmin, ymax, xmax], axis=1)
+    ymin, xmin = ycenter - 0.5 * h, xcenter - 0.5 * w
+    ymax, xmax = ycenter + 0.5 * h, xcenter + 0.5 * w
+    return tf.stack([ymin, xmin, ymax, xmax], axis=1)

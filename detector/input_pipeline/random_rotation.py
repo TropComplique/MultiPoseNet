@@ -289,10 +289,10 @@ def correct(boxes, keypoints, image_height, image_width):
     ymax = tf.clip_by_value(ymax, 0.0, image_height)
     xmax = tf.clip_by_value(xmax, 0.0, image_width)
     boxes = tf.stack([ymin, xmin, ymax, xmax], axis=1)
-    
+
     keypoints = tf.gather(keypoints, keep_indices)
     y, x, v = tf.split(keypoints, 3, axis=2)
-    
+
     image_height = tf.to_int32(image_height)
     image_width = tf.to_int32(image_width)
 
