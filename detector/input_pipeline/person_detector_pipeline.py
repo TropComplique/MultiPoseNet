@@ -1,6 +1,6 @@
 import tensorflow.compat.v1 as tf
 from detector.constants import SHUFFLE_BUFFER_SIZE, NUM_PARALLEL_CALLS, RESIZE_METHOD, DIVISOR
-from detector.input_pipeline.random_crop import random_crop
+from detector.input_pipeline.random_crop import random_image_crop
 from detector.input_pipeline.color_augmentations import random_color_manipulations, random_pixel_value_scale
 
 
@@ -123,7 +123,7 @@ class DetectorPipeline:
 def randomly_crop_and_resize(image, boxes, image_size, probability=0.9):
 
     def crop(image, boxes):
-        image, boxes, _, _ = random_crop(
+        image, boxes, _, _ = random_image_crop(
             image, boxes,
             min_object_covered=0.9,
             aspect_ratio_range=(0.85, 1.15),

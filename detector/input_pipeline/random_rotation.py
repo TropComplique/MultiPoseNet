@@ -1,4 +1,5 @@
 import tensorflow.compat.v1 as tf
+import tensorflow.contrib as contrib
 from detector.constants import DOWNSAMPLE, OVERLAP_THRESHOLD
 from detector.input_pipeline.random_crop import prune_non_overlapping_boxes
 
@@ -42,7 +43,7 @@ def random_image_rotation(image, masks, boxes, keypoints, max_angle=45, probabil
         scaler = get_random_scaling(box_center, box_width, image_width)
 
         rotation *= scaler
-        translation = image_center - tf.matmul(rotation, box_center)
+        translation = image_center - tf.matmul(box_center, rotation)
 
         """
         Assume tensor `points` has shape [n, 2].
@@ -64,13 +65,13 @@ def random_image_rotation(image, masks, boxes, keypoints, max_angle=45, probabil
         # now all boxes and keypoints are inside the image
 
         transform = get_inverse_transform(rotation, translation)
-        image = tf.contrib.image.transform(image, transform, interpolation='BILINEAR')
+        image = contrib.image.transform(image, transform, interpolation='BILINEAR')
 
         # masks are smaller than the image
         scaler = tf.stack([1, 1, DOWNSAMPLE, 1, 1, DOWNSAMPLE, 1, 1])
-        masks_transform = transform * tf.to_float(scaler)
+        masks_transform = transform / tf.to_float(scaler)
 
-        masks = tf.contrib.image.transform(masks, transform, interpolation='NEAREST')
+        masks = contrib.image.transform(masks, masks_transform, interpolation='NEAREST')
         # masks are binary so we use the nearest neighbor interpolation
 
         return image, masks, boxes, keypoints
@@ -287,9 +288,13 @@ def correct(boxes, keypoints, image_height, image_width):
     xmin = tf.clip_by_value(xmin, 0.0, image_width)
     ymax = tf.clip_by_value(ymax, 0.0, image_height)
     xmax = tf.clip_by_value(xmax, 0.0, image_width)
-
+    boxes = tf.stack([ymin, xmin, ymax, xmax], axis=1)
+    
     keypoints = tf.gather(keypoints, keep_indices)
-    y, x, v = tf.split(keypoints, 1, axis=2)
+    y, x, v = tf.split(keypoints, 3, axis=2)
+    
+    image_height = tf.to_int32(image_height)
+    image_width = tf.to_int32(image_width)
 
     coordinate_violations = tf.concat([
         tf.less(y, 0), tf.less(x, 0),
