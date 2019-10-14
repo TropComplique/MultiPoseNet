@@ -20,6 +20,15 @@ class DetectorPipeline:
         """
         self.is_training = is_training
 
+        def get_num_samples(filename):
+            return sum(1 for _ in tf.python_io.tf_record_iterator(filename))
+
+        num_examples = 0
+        for filename in filenames:
+            num_examples_in_file = get_num_samples(filename)
+            num_examples += num_examples_in_file
+        self.num_examples = num_examples
+
         if not is_training:
             batch_size = 1
             self.image_size = [None, None]

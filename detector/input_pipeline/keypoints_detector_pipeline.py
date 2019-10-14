@@ -89,11 +89,13 @@ class KeypointPipeline:
         )
 
         if self.is_training:
-            import math
+            from math import ceil
             height, width = self.image_size
-            h = math.ceil(height/DOWNSAMPLE)
-            w = math.ceil(width/DOWNSAMPLE)
+            h = ceil(height/DOWNSAMPLE)
+            w = ceil(width/DOWNSAMPLE)
             heatmaps.set_shape([h, w, 17])
+        else:
+            heatmaps.set_shape([None, None, 17])
 
         features = {'images': image}
         labels = {
@@ -216,7 +218,7 @@ def resize_keeping_aspect_ratio(image, masks, boxes, keypoints, min_dimension, d
     )
 
     # final image size
-    h = new_height + pad_heigh
+    h = new_height + pad_height
     w = new_width + pad_width
 
     # resize keeping aspect ratio
@@ -252,7 +254,7 @@ def resize_keeping_aspect_ratio(image, masks, boxes, keypoints, min_dimension, d
 
     points, v = tf.split(keypoints, [2, 1], axis=2)
     points = tf.to_int32(tf.round(tf.to_float(points) * keypoint_scaler))
-    y, x = tf.split(points, 1, axis=2)
+    y, x = tf.split(points, 2, axis=2)
     y = tf.clip_by_value(y, 0, h - 1)
     x = tf.clip_by_value(x, 0, w - 1)
     keypoints = tf.concat([y, x, v], axis=2)
@@ -404,7 +406,7 @@ def randomly_crop_and_resize(image, masks, boxes, keypoints, image_size, probabi
     masks = tf.image.crop_and_resize(
         image=tf.expand_dims(masks, 0),
         boxes=tf.expand_dims(window, 0),
-        box_ind=tf.constant([0], dtype=tf.int32),
+        box_indices=tf.constant([0], dtype=tf.int32),
         crop_size=[masks_height, masks_width],
         method='nearest'
     )

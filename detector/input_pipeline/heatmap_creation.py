@@ -19,7 +19,7 @@ def get_heatmaps(keypoints, boxes, width, height, downsample):
         a numpy float array with shape [height/downsample, width/downsample, 17].
     """
 
-    min_sigma, max_sigma = 2.0, 4.0
+    min_sigma, max_sigma = 1.0, 4.0
     scaler = np.array([height - 1.0, width - 1.0], dtype=np.float32)
     keypoints = keypoints.astype(np.float32)
 
@@ -31,7 +31,7 @@ def get_heatmaps(keypoints, boxes, width, height, downsample):
     # they have shape [num_persons, 1]
 
     scale = np.sqrt((ymax - ymin) * (xmax - xmin))
-    sigmas = np.squeeze(scale * 0.01, axis=1)
+    sigmas = np.squeeze(scale * 0.007, axis=1)
 
     kernels = []  # each person has different blob size
     sigmas = np.clip(sigmas, min_sigma, max_sigma)
