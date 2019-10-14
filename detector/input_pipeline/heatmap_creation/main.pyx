@@ -15,7 +15,8 @@ cdef inline float min(float a, float b):
 @cython.wraparound(False)
 def get_heatmaps(
         np.ndarray[float, ndim=3] keypoints,
-        float sigma,
+        np.ndarray[float, ndim=1] sigmas,
+        float min_sigma,
         unsigned int width,
         unsigned int height,
         unsigned int downsample):
@@ -26,11 +27,12 @@ def get_heatmaps(
             where coordinates `y, x` are in the ranges
             [0, height - 1] and [0, width - 1].
             And a keypoint is visible if `visibility > 0`.
-        sigma: a float number, size of the gaussian blobs.
+        sigmas: a numpy float array with shape [num_persons], sizes of the gaussian blobs.
+        min_sigma: a float number.
         width, height: integers, size of the original image.
         downsample: an integer.
     Returns:
-        heatmaps: a numpy float array with shape [maps_height, maps_width, 17],
+        a numpy float array with shape [maps_height, maps_width, 17],
         where (maps_height, maps_width) = (height/downsample, width/downsample).
     """
 
