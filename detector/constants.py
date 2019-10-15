@@ -37,5 +37,5 @@ NEGATIVES_THRESHOLD = 0.5
 # this is used in tf.map_fn when creating training targets or doing nms
 PARALLEL_ITERATIONS = 10
 
-# for augmentation
+# if overlap of a box with an image less than this value it is removed
 OVERLAP_THRESHOLD = 0.25

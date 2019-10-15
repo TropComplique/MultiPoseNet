@@ -1,23 +1,20 @@
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 from detector import KeypointSubnet
 from detector.backbones import mobilenet_v1
-from detector.constants import MOVING_AVERAGE_DECAY, DATA_FORMAT
-
-
-ADDITIONAL_LOSS_WEIGHT = 4.0
+from detector.constants import MOVING_AVERAGE_DECAY
+from detector.constants import DATA_FORMAT
 
 
 def model_fn(features, labels, mode, params):
-    """
-    This is a function for creating a computational tensorflow graph.
-    The function is in format required by tf.estimator.
-    """
 
     assert mode != tf.estimator.ModeKeys.PREDICT
     is_training = mode == tf.estimator.ModeKeys.TRAIN
 
+    images = features['images']
+    # it has shape [b, height, width, 3]
+
     backbone_features = mobilenet_v1(
-        features['images'], is_training,
+        images, is_training,
         depth_multiplier=params['depth_multiplier']
     )
     subnet = KeypointSubnet(
@@ -26,50 +23,49 @@ def model_fn(features, labels, mode, params):
     )
 
     # add l2 regularization
-    with tf.name_scope('weight_decay'):
-        add_weight_decay(params['weight_decay'])
-        regularization_loss = tf.losses.get_regularization_loss()
-        tf.summary.scalar('regularization_loss', regularization_loss)
+    add_weight_decay(params['weight_decay'])
+    regularization_loss = tf.losses.get_regularization_loss()
+    tf.summary.scalar('regularization_loss', regularization_loss)
 
-    with tf.name_scope('losses'):
+    losses = {}
 
-        batch_size = tf.shape(labels['heatmaps'])[0]
-        normalizer = tf.to_float(batch_size)
+    heatmaps = labels['heatmaps']
+    # it has shape [b, h, w, 17],
+    # where (h, w) = (height / 4, width / 4),
+    # and `b` is batch size
 
-        heatmaps = labels['heatmaps']
-        # it has shape [b, h, w, 17],
-        # where (h, w) = (image_height / 4, image_width / 4),
-        # and `b` is batch size
+    batch_size = tf.shape(heatmaps)[0]
+    normalizer = tf.to_float(batch_size)
 
-        segmentation_masks = tf.expand_dims(labels['segmentation_masks'], 3)
-        loss_masks = tf.expand_dims(labels['loss_masks'], 3)
-        # they have shape [b, h, w, 1]
+    segmentation_masks = tf.expand_dims(labels['segmentation_masks'], 3)
+    loss_masks = tf.expand_dims(labels['loss_masks'], 3)
+    # they have shape [b, h, w, 1]
 
-        predicted_heatmaps = subnet.heatmaps
-        heatmaps = tf.concat([heatmaps, segmentation_masks], axis=3)
+    heatmaps = tf.concat([heatmaps, segmentation_masks], axis=3)
+    # it has shape [b, h, w, 18]
 
-        regression_loss = tf.nn.l2_loss(loss_masks * (predicted_heatmaps - heatmaps))
-        losses = {
-            'regression_loss': (1.0/normalizer) * regression_loss
-        }
+    predicted_heatmaps = subnet.heatmaps
+    regression_loss = tf.nn.l2_loss(loss_masks * (predicted_heatmaps - heatmaps))
+    losses['regression_loss'] = (1.0/normalizer) * regression_loss
 
-        # additional supervision with segmentation
-        for level in range(2, 6):
+    # additional supervision
+    # with person segmentation
+    for level in range(2, 6):
 
-            p = subnet.enriched_features['p' + str(level)]
-            f = tf.expand_dims(p[:, :, :, 0], 3)
-            # it has shape [b, image_height / stride, image_width / stride, 1],
-            # where stride = level**2
+        x = subnet.enriched_features[f'p{level}']
+        x = tf.expand_dims(x[:, :, :, 0], 3)
+        # it has shape [b, height / stride, width / stride, 1],
+        # where stride is equal to level ** 2
 
-            value = (ADDITIONAL_LOSS_WEIGHT/normalizer) * tf.nn.l2_loss(f - segmentation_masks)
-            losses['segmentation_loss_at_level_' + str(level)] = value
+        x = tf.nn.l2_loss(loss_masks * (x - segmentation_masks))
+        losses[f'segmentation_loss_at_level_{level}'] = (4.0/normalizer) * x
 
-            shape = tf.shape(segmentation_masks)
-            height, width = shape[1], shape[2]
-            new_size = [tf.to_int32(height // 2), tf.to_int32(width // 2)]
-            segmentation_masks = tf.image.resize_bilinear(
-                segmentation_masks, new_size, align_corners=True
-            )
+        shape = tf.shape(segmentation_masks)
+        height, width = shape[1], shape[2]
+        new_size = [tf.to_int32(0.5 * height), tf.to_int32(0.5 * width)]
+
+        segmentation_masks = tf.image.resize_bilinear(segmentation_masks, new_size)
+        loss_masks = tf.image.resize_bilinear(loss_masks, new_size)
 
     for n, v in losses.items():
         tf.losses.add_loss(v)
@@ -77,9 +73,11 @@ def model_fn(features, labels, mode, params):
     total_loss = tf.losses.get_total_loss(add_regularization_losses=True)
 
     with tf.name_scope('eval_metrics'):
+
         shape = tf.shape(heatmaps)
         height, width = shape[1], shape[2]
         area = tf.to_float(height * width)
+
         per_pixel_reg_loss = tf.nn.l2_loss(loss_masks * (predicted_heatmaps - heatmaps))/(normalizer * area)
         tf.summary.scalar('per_pixel_reg_loss', per_pixel_reg_loss)
 
@@ -107,7 +105,7 @@ def model_fn(features, labels, mode, params):
         tf.summary.scalar('learning_rate', learning_rate)
 
     update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
-    with tf.control_dependencies(update_ops), tf.variable_scope('optimizer'):
+    with tf.control_dependencies(update_ops):
         optimizer = tf.train.AdamOptimizer(learning_rate)
         grads_and_vars = optimizer.compute_gradients(total_loss)
         train_op = optimizer.apply_gradients(grads_and_vars, global_step)
@@ -116,7 +114,7 @@ def model_fn(features, labels, mode, params):
         tf.summary.histogram(v.name[:-2] + '_hist', v)
         tf.summary.histogram(v.name[:-2] + '_grad_hist', g)
 
-    with tf.control_dependencies([train_op]), tf.name_scope('ema'):
+    with tf.control_dependencies([train_op]):
         ema = tf.train.ExponentialMovingAverage(decay=MOVING_AVERAGE_DECAY, num_updates=global_step)
         train_op = ema.apply(tf.trainable_variables())
 
@@ -124,18 +122,14 @@ def model_fn(features, labels, mode, params):
 
 
 def add_weight_decay(weight_decay):
-    """Add L2 regularization to all (or some) trainable kernel weights."""
-    weight_decay = tf.constant(
-        weight_decay, tf.float32,
-        [], 'weight_decay'
-    )
+
     trainable_vars = tf.trainable_variables()
     kernels = [
         v for v in trainable_vars
         if ('weights' in v.name or 'kernel' in v.name) and 'depthwise_weights' not in v.name
     ]
-    for K in kernels:
-        x = tf.multiply(weight_decay, tf.nn.l2_loss(K))
+    for k in kernels:
+        x = tf.multiply(weight_decay, tf.nn.l2_loss(k))
         tf.add_to_collection(tf.GraphKeys.REGULARIZATION_LOSSES, x)
 
 

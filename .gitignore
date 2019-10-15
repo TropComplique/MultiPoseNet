@@ -1,8 +1,6 @@
 .DS_Store
 .ipynb_checkpoints
 __pycache__
-*.so
-*.c
 *.pb
 
 models/

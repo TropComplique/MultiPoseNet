@@ -46,12 +46,12 @@ class KeypointSubnet:
         )
 
         if DATA_FORMAT == 'channels_first':
-            with tf.name_scope('to_nhwc'):
-                self.heatmaps = tf.transpose(self.heatmaps, [0, 2, 3, 1])
-                self.enriched_features = {
-                    n: tf.transpose(x, [0, 2, 3, 1])
-                    for n, x in self.enriched_features.items()
-                }
+
+            self.heatmaps = tf.transpose(self.heatmaps, [0, 2, 3, 1])
+            self.enriched_features = {
+                n: tf.transpose(x, [0, 2, 3, 1])
+                for n, x in self.enriched_features.items()
+            }
 
 
 def phi_subnet(x, is_training, upsample):
