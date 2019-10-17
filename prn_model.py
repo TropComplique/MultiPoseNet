@@ -1,5 +1,4 @@
 import tensorflow.compat.v1 as tf
-from detector.constants import MOVING_AVERAGE_DECAY
 from detector import prn
 
 
@@ -54,9 +53,5 @@ def model_fn(features, labels, mode, params):
     for g, v in grads_and_vars:
         tf.summary.histogram(v.name[:-2] + '_hist', v)
         tf.summary.histogram(v.name[:-2] + '_grad_hist', g)
-
-    with tf.control_dependencies([train_op]):
-        ema = tf.train.ExponentialMovingAverage(decay=MOVING_AVERAGE_DECAY, num_updates=global_step)
-        train_op = ema.apply(tf.trainable_variables())
 
     return tf.estimator.EstimatorSpec(mode, loss=total_loss, train_op=train_op)

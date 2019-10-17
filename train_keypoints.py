@@ -1,6 +1,6 @@
 import os
 import tensorflow.compat.v1 as tf
-from keypoints_model import model_fn, RestoreMovingAverageHook
+from keypoints_model import model_fn
 from detector.input_pipeline import KeypointPipeline
 
 
@@ -15,7 +15,7 @@ PARAMS = {
     'weight_decay': 1e-4,
 
     'num_steps': 200000,
-    'initial_learning_rate': 1e-4,
+    'initial_learning_rate': 3e-4,
 
     'min_dimension': 512,
     'batch_size': 16,
@@ -57,8 +57,5 @@ estimator = tf.estimator.Estimator(model_fn, params=PARAMS, config=run_config, w
 
 
 train_spec = tf.estimator.TrainSpec(train_input_fn, max_steps=PARAMS['num_steps'])
-eval_spec = tf.estimator.EvalSpec(
-    val_input_fn, steps=None, start_delay_secs=7200, throttle_secs=7200,
-    hooks=[RestoreMovingAverageHook(PARAMS['model_dir'])]
-)
+eval_spec = tf.estimator.EvalSpec(val_input_fn, steps=None, start_delay_secs=7200, throttle_secs=7200)
 tf.estimator.train_and_evaluate(estimator, train_spec, eval_spec)

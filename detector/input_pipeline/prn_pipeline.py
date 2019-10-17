@@ -3,7 +3,8 @@ from detector.constants import SHUFFLE_BUFFER_SIZE, NUM_PARALLEL_CALLS, DOWNSAMP
 from detector.input_pipeline.heatmap_creation import get_heatmaps
 
 
-CROP_SIZE = [56, 36]  # height and width
+# height and width
+CROP_SIZE = [56, 36]
 
 
 class PoseResidualNetworkPipeline:
@@ -21,9 +22,9 @@ class PoseResidualNetworkPipeline:
         self.max_keypoints = max_keypoints
 
         dataset = tf.data.Dataset.from_tensor_slices(filenames)
-        num_shards = len(filenames)
 
         if is_training:
+            num_shards = len(filenames)
             dataset = dataset.shuffle(buffer_size=num_shards)
 
         dataset = dataset.flat_map(tf.data.TFRecordDataset)
@@ -33,7 +34,7 @@ class PoseResidualNetworkPipeline:
             dataset = dataset.shuffle(buffer_size=SHUFFLE_BUFFER_SIZE)
 
         dataset = dataset.repeat(None if is_training else 1)
-        dataset = dataset.map(self._parse_and_preprocess, num_parallel_calls=NUM_PARALLEL_CALLS)
+        dataset = dataset.map(self.parse_and_preprocess, num_parallel_calls=NUM_PARALLEL_CALLS)
         dataset = dataset.apply(tf.data.experimental.unbatch())
 
         if is_training:
@@ -44,11 +45,11 @@ class PoseResidualNetworkPipeline:
 
         self.dataset = dataset
 
-    def _parse_and_preprocess(self, example_proto):
+    def parse_and_preprocess(self, example_proto):
         """
         Returns:
-            crops: a float tensor with shape [num_persons, 56, 36, 17].
-            labels: a float tensor with shape [num_persons, 56, 36, 17].
+            crops: a float tensor with shape [num_persons, height, width, 17].
+            labels: a float tensor with shape [num_persons, height, width, 17].
         """
         features = {
             'image': tf.FixedLenFeature([], tf.string),
@@ -60,8 +61,8 @@ class PoseResidualNetworkPipeline:
 
         # get size of the image
         shape = tf.image.extract_jpeg_shape(parsed_features['image'])
-        height, width = shape[0], shape[1]
-        scaler = tf.to_float(tf.stack([height, width, height, width]))
+        image_height, image_width = shape[0], shape[1]
+        scaler = tf.to_float(tf.stack(2 * [image_height, image_width]))
 
         # get number of people on the image
         num_persons = tf.to_int32(parsed_features['num_persons'])
@@ -81,6 +82,7 @@ class PoseResidualNetworkPipeline:
 
             is_visible = tf.to_int32(keypoints[:, :, 2] > 0)  # shape [num_persons, 17]
             is_good = tf.less_equal(tf.reduce_sum(is_visible, axis=1), self.max_keypoints)
+            # it has shape [num_persons]
 
             keypoints = tf.boolean_mask(keypoints, is_good)
             boxes = tf.boolean_mask(boxes, is_good)
@@ -88,14 +90,15 @@ class PoseResidualNetworkPipeline:
 
         heatmaps = tf.py_func(
             lambda k, b, w, h: get_heatmaps(k, b, w, h, DOWNSAMPLE),
-            [keypoints, boxes, width, height],
+            [keypoints, boxes, image_width, image_height],
             tf.float32, stateful=False
         )
         heatmaps.set_shape([None, None, 17])
-        box_ind = tf.zeros([num_persons], dtype=tf.int32)
+
+        box_indices = tf.zeros([num_persons], dtype=tf.int32)
         crops = tf.image.crop_and_resize(
             tf.expand_dims(heatmaps, 0),
-            boxes/scaler, box_ind=box_ind,
+            boxes/scaler, box_indices,
             crop_size=CROP_SIZE
         )
 
@@ -105,9 +108,10 @@ class PoseResidualNetworkPipeline:
                 keypoints: a float tensor with shape [17, 3].
                 box: a float tensor with shape [4].
             Returns:
-                a float tensor with shape [56, 36, 17].
+                a float tensor with shape [height, width, 17].
             """
             keypoints, box = x
+
             ymin, xmin, ymax, xmax = tf.unstack(box, axis=0)
             y, x, v = tf.unstack(keypoints, axis=1)
             keypoints = tf.stack([y, x], axis=1)
@@ -116,22 +120,28 @@ class PoseResidualNetworkPipeline:
             part_id = tf.to_int32(part_id)
             num_visible = tf.shape(part_id)[0]
             keypoints = tf.gather(keypoints, tf.squeeze(part_id, 1))
+            # it has shape [num_visible, 2], they have absolute coordinates
+
+            # transform keypoints coordinates
+            # to be relative to the box
+            h, w = ymax - ymin, xmax - xmin
+            height, width = CROP_SIZE
+            translation = tf.stack([ymin, xmin])
+            scaler = tf.to_float(tf.stack([height/h, width/w], axis=0))
+
+            keypoints -= translation
+            keypoints *= scaler
+            keypoints = tf.to_int32(tf.round(keypoints))
             # it has shape [num_visible, 2]
 
-            keypoints -= tf.stack([ymin, xmin])
-            h, w = ymax - ymin, xmax - xmin
-            scaler = tf.to_float(tf.stack([CROP_SIZE[0]/h, CROP_SIZE[1]/w], axis=0))
-            keypoints *= scaler
-            keypoints = tf.to_int32(tf.floor(keypoints))  # shape [num_visible, 2]
-
             y, x = tf.unstack(keypoints, axis=1)
-            y = tf.clip_by_value(y, 0, CROP_SIZE[0] - 1)
-            x = tf.clip_by_value(x, 0, CROP_SIZE[1] - 1)
+            y = tf.clip_by_value(y, 0, height - 1)
+            x = tf.clip_by_value(x, 0, width - 1)
             keypoints = tf.stack([y, x], axis=1)
 
             indices = tf.to_int64(tf.concat([keypoints, part_id], axis=1))
             values = tf.ones([num_visible], dtype=tf.float32)
-            binary_map = tf.sparse.SparseTensor(indices, values, dense_shape=CROP_SIZE + [17])
+            binary_map = tf.sparse.SparseTensor(indices, values, dense_shape=[height, width, 17])
             binary_map = tf.sparse.to_dense(binary_map, default_value=0, validate_indices=False)
             return binary_map
 
@@ -151,9 +161,9 @@ def random_flip_left_right(crops, labels):
     def randomly_flip(x):
         """
         Arguments:
-            crops, labels: float tensors with shape [56, 36, 17].
+            crops, labels: float tensors with shape [height, width, 17].
         Returns:
-            float tensors with shape [56, 36, 17].
+            float tensors with shape [height, width, 17].
         """
         crops, labels = x
 
@@ -185,10 +195,9 @@ def random_flip_left_right(crops, labels):
 
         return crops, labels
 
-    with tf.name_scope('random_flip_left_right'):
-        crops, labels = tf.map_fn(
-            randomly_flip, (crops, labels),
-            dtype=(tf.float32, tf.float32),
-            back_prop=False,
-        )
-        return crops, labels
+    crops, labels = tf.map_fn(
+        randomly_flip, (crops, labels),
+        dtype=(tf.float32, tf.float32),
+        back_prop=False,
+    )
+    return crops, labels

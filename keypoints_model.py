@@ -1,9 +1,6 @@
 import tensorflow.compat.v1 as tf
-import tensorflow.contrib as contrib
 from detector import KeypointSubnet
 from detector.backbones import mobilenet_v1
-from detector.constants import MOVING_AVERAGE_DECAY
-from detector.constants import DATA_FORMAT
 
 
 def model_fn(features, labels, mode, params):
@@ -16,7 +13,7 @@ def model_fn(features, labels, mode, params):
 
     backbone_features = mobilenet_v1(
         images, is_training,
-        depth_multiplier=params['depth_multiplier']
+        params['depth_multiplier']
     )
     subnet = KeypointSubnet(
         backbone_features,
@@ -109,16 +106,12 @@ def model_fn(features, labels, mode, params):
     with tf.control_dependencies(update_ops):
         optimizer = tf.train.AdamOptimizer(learning_rate)
         grads_and_vars = optimizer.compute_gradients(total_loss)
-        grads_and_vars = [(tf.clip_by_value(g, -500, 500), v) for g, v in grads_and_vars]
+        grads_and_vars = [(tf.clip_by_value(g, -200, 200), v) for g, v in grads_and_vars]
         train_op = optimizer.apply_gradients(grads_and_vars, global_step)
 
     for g, v in grads_and_vars:
         tf.summary.histogram(v.name[:-2] + '_hist', v)
         tf.summary.histogram(v.name[:-2] + '_grad_hist', g)
-
-    with tf.control_dependencies([train_op]):
-        ema = tf.train.ExponentialMovingAverage(decay=MOVING_AVERAGE_DECAY, num_updates=global_step)
-        train_op = ema.apply(tf.trainable_variables())
 
     return tf.estimator.EstimatorSpec(mode, loss=total_loss, train_op=train_op)
 
@@ -133,20 +126,3 @@ def add_weight_decay(weight_decay):
     for k in kernels:
         x = tf.multiply(weight_decay, tf.nn.l2_loss(k))
         tf.add_to_collection(tf.GraphKeys.REGULARIZATION_LOSSES, x)
-
-
-class RestoreMovingAverageHook(tf.train.SessionRunHook):
-    def __init__(self, model_dir):
-        super(RestoreMovingAverageHook, self).__init__()
-        self.model_dir = model_dir
-
-    def begin(self):
-        ema = tf.train.ExponentialMovingAverage(decay=MOVING_AVERAGE_DECAY)
-        variables_to_restore = ema.variables_to_restore()
-        self.load_ema = contrib.framework.assign_from_checkpoint_fn(
-            tf.train.latest_checkpoint(self.model_dir), variables_to_restore
-        )
-
-    def after_create_session(self, sess, coord):
-        tf.logging.info('Loading EMA weights...')
-        self.load_ema(sess)

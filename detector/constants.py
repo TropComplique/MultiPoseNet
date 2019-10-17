@@ -1,8 +1,5 @@
 import tensorflow.compat.v1 as tf
 
-# this is used for polyak averaging
-MOVING_AVERAGE_DECAY = 0.993
-
 # all image sizes must be divisible by this value
 DIVISOR = 128
 

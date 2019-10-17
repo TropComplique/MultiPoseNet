@@ -1,6 +1,5 @@
 import os
 import tensorflow.compat.v1 as tf
-from keypoints_model import RestoreMovingAverageHook
 from detector.input_pipeline import DetectorPipeline
 from person_detector_model import model_fn
 
@@ -64,8 +63,5 @@ estimator = tf.estimator.Estimator(model_fn, params=PARAMS, config=run_config, w
 
 
 train_spec = tf.estimator.TrainSpec(train_input_fn, max_steps=PARAMS['num_steps'])
-eval_spec = tf.estimator.EvalSpec(
-    val_input_fn, steps=None, start_delay_secs=3600, throttle_secs=3600,
-    hooks=[RestoreMovingAverageHook(PARAMS['model_dir'])]
-)
+eval_spec = tf.estimator.EvalSpec(val_input_fn, steps=None, start_delay_secs=7200, throttle_secs=7200)
 tf.estimator.train_and_evaluate(estimator, train_spec, eval_spec)
