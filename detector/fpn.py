@@ -41,7 +41,8 @@ def feature_pyramid_network(
 
         if add_coarse_features:
             p6 = conv2d_same(features['c5'], depth, kernel_size=3, stride=2, name='p6')
-            p7 = conv2d_same(batch_norm_relu(p6, name='pre_p7_bn'), depth, kernel_size=3, stride=2, name='p7')
+            pre_p7 = batch_norm_relu(p6, is_training, name='pre_p7_bn')
+            p7 = conv2d_same(pre_p7, depth, kernel_size=3, stride=2, name='p7')
             enriched_features.update({'p6': p6, 'p7': p7})
 
         # top-down path
@@ -49,7 +50,7 @@ def feature_pyramid_network(
             lateral = conv2d_same(features[f'c{i}'], depth, kernel_size=1, name=f'lateral{i}')
             x = nearest_neighbor_upsample(x) + lateral
             p = conv2d_same(x, depth, kernel_size=3, name=f'p{i}')
-            enriched_features['p' + i] = p
+            enriched_features[f'p{i}'] = p
 
     return enriched_features
 

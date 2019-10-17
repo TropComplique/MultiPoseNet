@@ -7,6 +7,8 @@ CROP_SIZE = [56, 36]  # height and width
 
 
 class PoseResidualNetworkPipeline:
+    """
+    """
     def __init__(self, filenames, is_training, batch_size, max_keypoints=None):
         """
         Arguments:
@@ -17,17 +19,6 @@ class PoseResidualNetworkPipeline:
         """
         self.is_training = is_training
         self.max_keypoints = max_keypoints
-
-        def get_num_samples(filename):
-            return sum(1 for _ in tf.python_io.tf_record_iterator(filename))
-
-        num_examples = 0
-        for filename in filenames:
-            num_examples_in_file = get_num_samples(filename)
-            assert num_examples_in_file > 0
-            num_examples += num_examples_in_file
-        self.num_examples = num_examples
-        assert self.num_examples > 0
 
         dataset = tf.data.Dataset.from_tensor_slices(filenames)
         num_shards = len(filenames)
@@ -95,10 +86,9 @@ class PoseResidualNetworkPipeline:
             boxes = tf.boolean_mask(boxes, is_good)
             num_persons = tf.shape(boxes)[0]
 
-        sigma = tf.random_uniform([], minval=0.7, maxval=1.5)
         heatmaps = tf.py_func(
-            lambda k, s, w, h: get_heatmaps(k, s, w, h, DOWNSAMPLE),
-            [tf.to_float(keypoints), sigma, width, height],
+            lambda k, b, w, h: get_heatmaps(k, b, w, h, DOWNSAMPLE),
+            [keypoints, boxes, width, height],
             tf.float32, stateful=False
         )
         heatmaps.set_shape([None, None, 17])

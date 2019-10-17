@@ -1,16 +1,12 @@
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 from detector import RetinaNet
 from detector.backbones import mobilenet_v1
 from detector.constants import MOVING_AVERAGE_DECAY, DATA_FORMAT
-from metrics import Evaluator
 from keypoints_model import add_weight_decay
+from metrics import Evaluator
 
 
 def model_fn(features, labels, mode, params):
-    """
-    This is a function for creating a computational tensorflow graph.
-    The function is in format required by tf.estimator.
-    """
 
     assert mode != tf.estimator.ModeKeys.PREDICT
     is_training = mode == tf.estimator.ModeKeys.TRAIN
@@ -35,22 +31,22 @@ def model_fn(features, labels, mode, params):
         )
 
     # add l2 regularization
-    with tf.name_scope('weight_decay'):
-        add_weight_decay(params['weight_decay'])
-        regularization_loss = tf.losses.get_regularization_loss()
+    add_weight_decay(params['weight_decay'])
+    regularization_loss = tf.losses.get_regularization_loss()
+    tf.summary.scalar('regularization_loss', regularization_loss)
 
     # create localization and classification losses
     losses = retinanet.loss(labels, params)
     tf.losses.add_loss(params['localization_loss_weight'] * losses['localization_loss'])
     tf.losses.add_loss(params['classification_loss_weight'] * losses['classification_loss'])
-    tf.summary.scalar('regularization_loss', regularization_loss)
     tf.summary.scalar('localization_loss', losses['localization_loss'])
     tf.summary.scalar('classification_loss', losses['classification_loss'])
     total_loss = tf.losses.get_total_loss(add_regularization_losses=True)
 
     if mode == tf.estimator.ModeKeys.EVAL:
 
-        batch_size = features['images'].shape[0].value
+        shape = features['images'].shape
+        batch_size = shape[0].value
         assert batch_size == 1
 
         evaluator = Evaluator()
@@ -61,17 +57,16 @@ def model_fn(features, labels, mode, params):
             eval_metric_ops=eval_metric_ops
         )
 
-    assert mode == tf.estimator.ModeKeys.TRAIN
     with tf.variable_scope('learning_rate'):
         global_step = tf.train.get_global_step()
         learning_rate = tf.train.cosine_decay(
             params['initial_learning_rate'], global_step,
-            decay_steps=params['num_steps']
+            decay_steps=params['num_steps'], alpha=1e-4
         )
         tf.summary.scalar('learning_rate', learning_rate)
 
     update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
-    with tf.control_dependencies(update_ops), tf.variable_scope('optimizer'):
+    with tf.control_dependencies(update_ops):
         optimizer = tf.train.AdamOptimizer(learning_rate)
 
         # backbone network is frozen
@@ -84,7 +79,7 @@ def model_fn(features, labels, mode, params):
         tf.summary.histogram(v.name[:-2] + '_hist', v)
         tf.summary.histogram(v.name[:-2] + '_grad_hist', g)
 
-    with tf.control_dependencies([train_op]), tf.name_scope('ema'):
+    with tf.control_dependencies([train_op]):
         ema = tf.train.ExponentialMovingAverage(decay=MOVING_AVERAGE_DECAY, num_updates=global_step)
         train_op = ema.apply(tf.trainable_variables())
 

@@ -1,4 +1,5 @@
 import tensorflow.compat.v1 as tf
+import tensorflow.contrib as contrib
 import tensorflow.contrib.slim as slim
 from detector.constants import DATA_FORMAT
 
@@ -78,7 +79,7 @@ def mobilenet_v1(images, is_training, depth_multiplier=1.0):
     }
 
 
-@tf.contrib.framework.add_arg_scope
+@contrib.framework.add_arg_scope
 def depthwise_conv(
         x, kernel=3, stride=1, padding='SAME',
         activation_fn=None, normalizer_fn=None,

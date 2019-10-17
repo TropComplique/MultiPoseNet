@@ -1,4 +1,5 @@
 import tensorflow.compat.v1 as tf
+import tensorflow.contrib as contrib
 from detector import KeypointSubnet
 from detector.backbones import mobilenet_v1
 from detector.constants import MOVING_AVERAGE_DECAY
@@ -62,7 +63,7 @@ def model_fn(features, labels, mode, params):
 
         shape = tf.shape(segmentation_masks)
         height, width = shape[1], shape[2]
-        new_size = [tf.to_int32(0.5 * height), tf.to_int32(0.5 * width)]
+        new_size = [height // 2, width // 2]
 
         segmentation_masks = tf.image.resize_bilinear(segmentation_masks, new_size)
         loss_masks = tf.image.resize_bilinear(loss_masks, new_size)
@@ -78,6 +79,7 @@ def model_fn(features, labels, mode, params):
         height, width = shape[1], shape[2]
         area = tf.to_float(height * width)
 
+        loss_masks = tf.expand_dims(labels['loss_masks'], 3)
         per_pixel_reg_loss = tf.nn.l2_loss(loss_masks * (predicted_heatmaps - heatmaps))/(normalizer * area)
         tf.summary.scalar('per_pixel_reg_loss', per_pixel_reg_loss)
 
@@ -95,12 +97,11 @@ def model_fn(features, labels, mode, params):
             eval_metric_ops=eval_metric_ops
         )
 
-    assert mode == tf.estimator.ModeKeys.TRAIN
     with tf.variable_scope('learning_rate'):
         global_step = tf.train.get_global_step()
         learning_rate = tf.train.cosine_decay(
             params['initial_learning_rate'], global_step,
-            decay_steps=params['num_steps']
+            decay_steps=params['num_steps'], alpha=1e-4
         )
         tf.summary.scalar('learning_rate', learning_rate)
 
@@ -141,7 +142,7 @@ class RestoreMovingAverageHook(tf.train.SessionRunHook):
     def begin(self):
         ema = tf.train.ExponentialMovingAverage(decay=MOVING_AVERAGE_DECAY)
         variables_to_restore = ema.variables_to_restore()
-        self.load_ema = tf.contrib.framework.assign_from_checkpoint_fn(
+        self.load_ema = contrib.framework.assign_from_checkpoint_fn(
             tf.train.latest_checkpoint(self.model_dir), variables_to_restore
         )
 

@@ -11,7 +11,7 @@ This code creates a .pb frozen inference graph.
 """
 
 
-GPU_TO_USE = '0'
+GPU_TO_USE = '1'
 PB_FILE_PATH = 'inference/model.pb'
 BATCH_SIZE = 1  # must be an integer
 CROP_SIZE = [56, 36]  # used by PRN
@@ -26,9 +26,9 @@ PARAMS = {
     'iou_threshold': 0.6,
     'max_boxes': 25
 }
-KEYPOINTS_CHECKPOINT = 'models/run00/model.ckpt-175000'
+KEYPOINTS_CHECKPOINT = 'models/run00/model.ckpt-200000'
 PERSON_DETECTOR_CHECKPOINT = 'models/run01/model.ckpt-150000'
-PRN_CHECKPOINT = 'models/run02/model.ckpt-30000'
+PRN_CHECKPOINT = 'models/run02/model.ckpt-100000'
 
 
 def create_full_graph(images, params):
@@ -64,7 +64,10 @@ def create_full_graph(images, params):
     with tf.variable_scope('retinanet'):
         retinanet = RetinaNet(backbone_features, tf.shape(images), is_training, params)
 
-    predictions = subnet.get_predictions()
+    predictions = {
+        'keypoint_heatmaps': subnet.heatmaps[:, :, :, :17],
+        'segmentation_masks': subnet.heatmaps[:, :, :, 17]
+    }
     predictions.update(retinanet.get_predictions(
         score_threshold=params['score_threshold'],
         iou_threshold=params['iou_threshold'],

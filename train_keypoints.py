@@ -15,10 +15,10 @@ PARAMS = {
     'weight_decay': 2e-3,
 
     'num_steps': 200000,
-    'initial_learning_rate': 5e-4,
+    'initial_learning_rate': 1e-3,
 
     'min_dimension': 512,
-    'batch_size': 8,
+    'batch_size': 16,
     'image_size': (512, 512)
 }
 
@@ -52,7 +52,7 @@ run_config = run_config.replace(
 
 train_input_fn = get_input_fn(is_training=True)
 val_input_fn = get_input_fn(is_training=False)
-warm_start = tf.estimator.WarmStartSettings(PARAMS['pretrained_checkpoint'], ['MobilenetV1/*'])
+warm_start = tf.estimator.WarmStartSettings(PARAMS['pretrained_checkpoint'], 'MobilenetV1/*')
 estimator = tf.estimator.Estimator(model_fn, params=PARAMS, config=run_config, warm_start_from=warm_start)
 
 
