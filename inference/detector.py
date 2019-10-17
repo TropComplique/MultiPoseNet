@@ -1,4 +1,4 @@
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 import numpy as np
 
 
@@ -46,11 +46,16 @@ class Detector:
 
         feed_dict = {self.input_image: np.expand_dims(image, 0)}
         outputs = self.sess.run(self.output_ops, feed_dict)
-        outputs.update({n: v[0] for n, v in outputs.items() if n not in ['keypoint_scores', 'keypoint_positions']})
+        outputs.update({
+            n: v[0] for n, v in outputs.items()
+            if n not in ['keypoint_scores', 'keypoint_positions']
+        })
 
         n = outputs['num_boxes']
         to_keep = outputs['scores'][:n] > score_threshold
         outputs['boxes'] = outputs['boxes'][:n][to_keep]
         outputs['scores'] = outputs['scores'][:n][to_keep]
+        outputs['keypoint_positions'] = outputs['keypoint_positions'][to_keep]
+        outputs['keypoint_scores'] = outputs['keypoint_scores'][to_keep]
 
         return outputs

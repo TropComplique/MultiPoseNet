@@ -11,7 +11,6 @@ PARAMS = {
     'train_dataset': '/home/dan/datasets/COCO/multiposenet/train/',
     'val_dataset': '/home/dan/datasets/COCO/multiposenet/val/',
 
-    # 'weight_decay': 1e-9,
     'num_steps': NUM_STEPS_PER_KEYPOINT * 17,
     'initial_learning_rate': 1e-3,
 

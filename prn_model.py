@@ -1,6 +1,5 @@
 import tensorflow.compat.v1 as tf
 from detector.constants import MOVING_AVERAGE_DECAY
-# from keypoints_model import add_weight_decay
 from detector import prn
 
 
@@ -12,11 +11,6 @@ def model_fn(features, labels, mode, params):
     heatmaps = features  # shape [b, h, w, c]
     logits = prn(heatmaps, is_training)
     # it has shape [b, h, w, c]
-
-    # add l2 regularization
-    # add_weight_decay(params['weight_decay'])
-    # regularization_loss = tf.losses.get_regularization_loss()
-    # tf.summary.scalar('regularization_loss', regularization_loss)
 
     b = tf.shape(heatmaps)[0]
     _, h, w, c = heatmaps.shape.as_list()

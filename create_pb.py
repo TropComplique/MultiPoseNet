@@ -1,31 +1,41 @@
-import tensorflow as tf
-from detector import RetinaNet
-from detector import KeypointSubnet
-from detector import prn
+import tensorflow.compat.v1 as tf
 from detector.backbones import mobilenet_v1
-tf.logging.set_verbosity('INFO')
+from detector import KeypointSubnet
+from detector import RetinaNet
+from detector import prn
 
 
 """
 This code creates a .pb frozen inference graph.
 """
 
-
-GPU_TO_USE = '1'
+# result will be here
 PB_FILE_PATH = 'inference/model.pb'
-BATCH_SIZE = 1  # must be an integer
-CROP_SIZE = [56, 36]  # used by PRN
+
+# must be an integer
+BATCH_SIZE = 1
+
+# used by PRN
+CROP_SIZE = [56, 36]
+
+# the .pb file will
+# output these tensors
 OUTPUT_NAMES = [
     'boxes', 'scores', 'num_boxes',
     'keypoint_heatmaps', 'segmentation_masks',
     'keypoint_scores', 'keypoint_positions'
 ]
+
+# parameters of the backbone
+# and of non maximum suppression
 PARAMS = {
     'depth_multiplier': 1.0,
     'score_threshold': 0.3,
     'iou_threshold': 0.6,
     'max_boxes': 25
 }
+
+# trained models
 KEYPOINTS_CHECKPOINT = 'models/run00/model.ckpt-200000'
 PERSON_DETECTOR_CHECKPOINT = 'models/run01/model.ckpt-150000'
 PRN_CHECKPOINT = 'models/run02/model.ckpt-100000'
@@ -40,23 +50,19 @@ def create_full_graph(images, params):
         images: a float tensor with shape [b, h, w, 3].
         params: a dict.
     Returns:
-        a dict with the following keys
-        'boxes': a float tensor with shape [b, max_boxes, 4],
+        boxes: a float tensor with shape [b, max_boxes, 4],
             where max_boxes = max(num_boxes).
-        'scores': a float tensor with shape [b, max_boxes].
-        'num_boxes': an int tensor with shape [b].
-        'keypoint_heatmaps': a float tensor with shape [b, h / 4, w / 4, 17].
-        'segmentation_masks': a float tensor with shape [b, h / 4, w / 4].
-        'keypoint_scores': a float tensor with shape [total_num_boxes],
+        scores: a float tensor with shape [b, max_boxes].
+        num_boxes: an int tensor with shape [b].
+        keypoint_heatmaps: a float tensor with shape [b, h / 4, w / 4, 17].
+        segmentation_masks: a float tensor with shape [b, h / 4, w / 4].
+        keypoint_scores: a float tensor with shape [total_num_boxes],
             where total_num_boxes = sum(num_boxes).
-        'keypoint_positions': a float tensor with shape [total_num_boxes, 17, 2].
+        keypoint_positions: a float tensor with shape [total_num_boxes, 17, 2].
     """
-    is_training = False
 
-    backbone_features = mobilenet_v1(
-        images, is_training,
-        depth_multiplier=params['depth_multiplier']
-    )
+    is_training = False
+    backbone_features = mobilenet_v1(images, is_training, params['depth_multiplier'])
 
     with tf.variable_scope('keypoint_subnet'):
         subnet = KeypointSubnet(backbone_features, is_training, params)
@@ -89,6 +95,7 @@ def create_full_graph(images, params):
 
     boxes = tf.concat(boxes, axis=0)  # shape [num_boxes, 4]
     box_ind = tf.concat(box_ind, axis=0)  # shape [num_boxes]
+    # where num_boxes is equal to sum(num_boxes)
 
     crops = tf.image.crop_and_resize(
         heatmaps, boxes, box_ind,
@@ -96,33 +103,37 @@ def create_full_graph(images, params):
     )  # shape [num_boxes, 56, 36, 17]
 
     num_boxes = tf.shape(crops)[0]
-    logits = prn(crops, is_training)  # shape [num_boxes, 56, 36, 17]
+    logits = prn(crops, is_training)
+    # it has shape [num_boxes, 56, 36, 17]
 
-    logits = tf.reshape(logits, [num_boxes, CROP_SIZE[0] * CROP_SIZE[1], 17])
+    H, W = CROP_SIZE
+    logits = tf.reshape(logits, [num_boxes, H * W, 17])
     probabilities = tf.nn.softmax(logits, axis=1)
-    probabilities = tf.reshape(probabilities, [num_boxes] + CROP_SIZE + [17])
+    probabilities = tf.reshape(probabilities, [num_boxes, H, W, 17])
 
-    def argmax_2d(tensor):
+    def argmax_2d(x):
         """
         Arguments:
-            tensor: a tensor with shape [b, h, w, c].
+            x: a tensor with shape [b, h, w, c].
         Returns:
             an int tensor with shape [b, c, 2].
         """
-        shape = tf.shape(tensor)
-        flat_tensor = tf.reshape(tensor, [shape[0], -1, shape[3]])
+        shape = tf.unstack(tf.shape(x))
+        b, h, w, c = shape
 
-        argmax = tf.argmax(flat_tensor, axis=1, output_type=tf.int32)
-        argmax_x = argmax // shape[2]
-        argmax_y = argmax % shape[2]
+        flat_x = tf.reshape(x, [b, h * w, c])
+        argmax = tf.argmax(flat_x, axis=1, output_type=tf.int32)
 
-        return tf.stack([argmax_x, argmax_y], axis=2)  # WTF?
+        argmax_x = argmax // w
+        argmax_y = argmax % w
+
+        return tf.stack([argmax_x, argmax_y], axis=2)
 
     keypoint_scores = tf.reduce_max(probabilities, axis=[1, 2])  # shape [num_boxes, 17]
     keypoint_positions = tf.to_float(argmax_2d(probabilities))  # shape [num_boxes, 17, 2]
 
-    scaler = tf.to_float(tf.stack(CROP_SIZE, axis=0))
-    keypoint_positions /= scaler
+    scaler = tf.stack(CROP_SIZE, axis=0)
+    keypoint_positions /= tf.to_float(scaler)
 
     predictions.update({
         'keypoint_scores': keypoint_scores,
@@ -138,15 +149,16 @@ def create_full_graph(images, params):
 
 def convert_to_pb():
 
+    tf.logging.set_verbosity('INFO')
     graph = tf.Graph()
     config = tf.ConfigProto()
-    config.gpu_options.visible_device_list = GPU_TO_USE
+    config.gpu_options.visible_device_list = '0'
 
     with graph.as_default():
 
-        raw_images = tf.placeholder(dtype=tf.uint8, shape=[BATCH_SIZE, None, None, 3], name='images')
-        images = tf.to_float(raw_images)
-        images = (1.0/255.0) * images
+        shape = [BATCH_SIZE, None, None, 3]
+        raw_images = tf.placeholder(dtype=tf.uint8, shape=shape, name='images')
+        images = (1.0/255.0) * tf.to_float(raw_images)
         predictions = create_full_graph(images, PARAMS)
 
         tf.train.init_from_checkpoint(
