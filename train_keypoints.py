@@ -12,10 +12,10 @@ PARAMS = {
 
     'backbone': 'mobilenet',
     'depth_multiplier': 1.0,
-    'weight_decay': 2e-3,
+    'weight_decay': 1e-4,
 
     'num_steps': 200000,
-    'initial_learning_rate': 1e-3,
+    'initial_learning_rate': 1e-4,
 
     'min_dimension': 512,
     'batch_size': 16,
@@ -45,7 +45,7 @@ session_config.gpu_options.visible_device_list = '0'
 run_config = tf.estimator.RunConfig()
 run_config = run_config.replace(
     model_dir=PARAMS['model_dir'], session_config=session_config,
-    save_summary_steps=200, save_checkpoints_secs=1800,
+    save_summary_steps=200, save_checkpoints_secs=7200,
     log_step_count_steps=1000
 )
 
@@ -58,7 +58,7 @@ estimator = tf.estimator.Estimator(model_fn, params=PARAMS, config=run_config, w
 
 train_spec = tf.estimator.TrainSpec(train_input_fn, max_steps=PARAMS['num_steps'])
 eval_spec = tf.estimator.EvalSpec(
-    val_input_fn, steps=None, start_delay_secs=3600, throttle_secs=3600,
+    val_input_fn, steps=None, start_delay_secs=7200, throttle_secs=7200,
     hooks=[RestoreMovingAverageHook(PARAMS['model_dir'])]
 )
 tf.estimator.train_and_evaluate(estimator, train_spec, eval_spec)

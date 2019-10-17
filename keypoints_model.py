@@ -109,6 +109,7 @@ def model_fn(features, labels, mode, params):
     with tf.control_dependencies(update_ops):
         optimizer = tf.train.AdamOptimizer(learning_rate)
         grads_and_vars = optimizer.compute_gradients(total_loss)
+        grads_and_vars = [(tf.clip_by_value(g, -500, 500), v) for g, v in grads_and_vars]
         train_op = optimizer.apply_gradients(grads_and_vars, global_step)
 
     for g, v in grads_and_vars:

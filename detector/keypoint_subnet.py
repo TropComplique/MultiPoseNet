@@ -41,7 +41,7 @@ class KeypointSubnet:
         self.heatmaps = tf.layers.conv2d(
             x, NUM_KEYPOINTS + 1, kernel_size=1, padding='same',
             bias_initializer=tf.constant_initializer(0.0),
-            kernel_initializer=tf.random_normal_initializer(stddev=0.001),
+            kernel_initializer=tf.random_normal_initializer(stddev=1e-4),
             data_format=DATA_FORMAT, name='heatmaps'
         )
 

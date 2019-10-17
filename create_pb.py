@@ -38,7 +38,7 @@ PARAMS = {
 # trained models
 KEYPOINTS_CHECKPOINT = 'models/run00/model.ckpt-200000'
 PERSON_DETECTOR_CHECKPOINT = 'models/run01/model.ckpt-150000'
-PRN_CHECKPOINT = 'models/run02/model.ckpt-100000'
+PRN_CHECKPOINT = 'models/run02/model.ckpt-170000'
 
 
 def create_full_graph(images, params):
@@ -87,6 +87,12 @@ def create_full_graph(images, params):
     predicted_boxes = predictions['boxes']  # shape [b, max_boxes, 4]
     num_boxes = predictions['num_boxes']  # shape [b]
 
+    M = tf.reduce_max(heatmaps, [1, 2], keepdims=True)
+    mask = tf.to_float(M > 0.5)
+    m = tf.reduce_min(heatmaps, [1, 2], keepdims=True)
+    heatmaps = (heatmaps - m)/(M - m)
+    heatmaps *= mask
+
     boxes, box_ind = [], []
     for i in range(batch_size):
         n = num_boxes[i]
@@ -124,10 +130,10 @@ def create_full_graph(images, params):
         flat_x = tf.reshape(x, [b, h * w, c])
         argmax = tf.argmax(flat_x, axis=1, output_type=tf.int32)
 
-        argmax_x = argmax // w
-        argmax_y = argmax % w
+        argmax_y = argmax // w
+        argmax_x = argmax % w
 
-        return tf.stack([argmax_x, argmax_y], axis=2)
+        return tf.stack([argmax_y, argmax_x], axis=2)
 
     keypoint_scores = tf.reduce_max(probabilities, axis=[1, 2])  # shape [num_boxes, 17]
     keypoint_positions = tf.to_float(argmax_2d(probabilities))  # shape [num_boxes, 17, 2]
