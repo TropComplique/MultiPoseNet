@@ -35,4 +35,4 @@ NEGATIVES_THRESHOLD = 0.5
 PARALLEL_ITERATIONS = 10
 
 # if overlap of a box with an image less than this value it is removed
-OVERLAP_THRESHOLD = 0.25
+OVERLAP_THRESHOLD = 0.1

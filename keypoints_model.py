@@ -41,17 +41,18 @@ def model_fn(features, labels, mode, params):
     # they have shape [b, h, w, 1]
 
     predicted_heatmaps = subnet.heatmaps[:, :, :, :17]
-    predicted_segmentation_masks = subnet.heatmaps[:, :, :, 17]
+    predicted_segmentation_masks = tf.expand_dims(subnet.heatmaps[:, :, :, 17], 3)
 
-    focal_loss = focal_loss(
+    focal_loss_value = focal_loss(
         heatmaps, labels['num_boxes'],
         predicted_heatmaps, alpha=2.0, beta=4.0
     )  # shape [b, h, w]
-    focal_loss = tf.reduce_sum(tf.squeeze(loss_masks, 3) * focal_loss, axis=[0, 1, 2])
-    losses['focal_loss'] = focal_loss/normalizer
+    focal_loss_value = tf.squeeze(loss_masks, 3) * focal_loss_value
+    focal_loss_value = tf.reduce_sum(focal_loss_value, axis=[0, 1, 2])
+    losses['focal_loss'] = focal_loss_value/normalizer
 
     regression_loss = tf.nn.l2_loss(loss_masks * (predicted_segmentation_masks - segmentation_masks))
-    losses['regression_loss'] = (1.0/normalizer) * regression_loss
+    losses['regression_loss'] = 1e-2 * regression_loss/normalizer
 
     # additional supervision
     # with person segmentation
@@ -63,7 +64,7 @@ def model_fn(features, labels, mode, params):
         # where stride is equal to level ** 2
 
         x = tf.nn.l2_loss(loss_masks * (x - segmentation_masks))
-        losses[f'segmentation_loss_at_level_{level}'] = (4.0/normalizer) * x
+        losses[f'segmentation_loss_at_level_{level}'] = 1e-4 * x/normalizer
 
         shape = tf.shape(segmentation_masks)
         height, width = shape[1], shape[2]

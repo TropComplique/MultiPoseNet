@@ -38,9 +38,17 @@ class KeypointSubnet:
         x = conv2d_same(upsampled_features, 64, kernel_size=3, name='final_conv3x3')
         x = batch_norm_relu(x, is_training, name='final_bn')
 
+        p = 0.01  # probability of a keypoint
+        # sigmoid(-log((1 - p) / p)) = p
+
+        import math
+        value = -math.log((1.0 - p) / p)
+        keypoints_bias = 17 * [value]
+        bias_initializer = tf.constant_initializer(keypoints_bias + [0.0])
+
         self.heatmaps = tf.layers.conv2d(
             x, NUM_KEYPOINTS + 1, kernel_size=1, padding='same',
-            bias_initializer=tf.constant_initializer(0.0),
+            bias_initializer=bias_initializer,
             kernel_initializer=tf.random_normal_initializer(stddev=1e-4),
             data_format=DATA_FORMAT, name='heatmaps'
         )
