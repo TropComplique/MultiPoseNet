@@ -21,9 +21,10 @@ def model_fn(features, labels, mode, params):
     )
 
     # add l2 regularization
-    add_weight_decay(params['weight_decay'])
-    regularization_loss = tf.losses.get_regularization_loss()
-    tf.summary.scalar('regularization_loss', regularization_loss)
+    if params['weight_decay'] > 0.0:
+        add_weight_decay(params['weight_decay'])
+        regularization_loss = tf.losses.get_regularization_loss()
+        tf.summary.scalar('regularization_loss', regularization_loss)
 
     losses = {}
 
@@ -39,11 +40,17 @@ def model_fn(features, labels, mode, params):
     loss_masks = tf.expand_dims(labels['loss_masks'], 3)
     # they have shape [b, h, w, 1]
 
-    heatmaps = tf.concat([heatmaps, segmentation_masks], axis=3)
-    # it has shape [b, h, w, 18]
+    predicted_heatmaps = subnet.heatmaps[:, :, :, :17]
+    predicted_segmentation_masks = subnet.heatmaps[:, :, :, 17]
 
-    predicted_heatmaps = subnet.heatmaps
-    regression_loss = tf.nn.l2_loss(loss_masks * (predicted_heatmaps - heatmaps))
+    focal_loss = focal_loss(
+        heatmaps, labels['num_boxes'],
+        predicted_heatmaps, alpha=2.0, beta=4.0
+    )  # shape [b, h, w]
+    focal_loss = tf.reduce_sum(tf.squeeze(loss_masks, 3) * focal_loss, axis=[0, 1, 2])
+    losses['focal_loss'] = focal_loss/normalizer
+
+    regression_loss = tf.nn.l2_loss(loss_masks * (predicted_segmentation_masks - segmentation_masks))
     losses['regression_loss'] = (1.0/normalizer) * regression_loss
 
     # additional supervision
@@ -84,6 +91,7 @@ def model_fn(features, labels, mode, params):
 
         eval_metric_ops = {
             'eval_regression_loss': tf.metrics.mean(losses['regression_loss']),
+            'eval_focal_loss': tf.metrics.mean(losses['focal_loss']),
             'eval_per_pixel_reg_loss': tf.metrics.mean(per_pixel_reg_loss),
             'eval_segmentation_loss_at_level_2': tf.metrics.mean(losses['segmentation_loss_at_level_2']),
             'eval_segmentation_loss_at_level_5': tf.metrics.mean(losses['segmentation_loss_at_level_5'])
@@ -126,3 +134,43 @@ def add_weight_decay(weight_decay):
     for k in kernels:
         x = tf.multiply(weight_decay, tf.nn.l2_loss(k))
         tf.add_to_collection(tf.GraphKeys.REGULARIZATION_LOSSES, x)
+
+
+def focal_loss(heatmaps, num_boxes, predictions, alpha=2.0, beta=4.0):
+    """
+    This is loss function from here:
+    "CornerNet: Detecting Objects as Paired Keypoints"
+    (https://arxiv.org/abs/1808.01244)
+
+    Arguments:
+        heatmaps: a float tensor with shape [b, h, w, c].
+        num_boxes: a long tensor with shape [b].
+        predictions: a float tensor with shape [b, h, w, c],
+            it represents logits.
+        alpha, beta: float numbers.
+    Returns:
+        a float tensor with shape [b, h, w].
+    """
+
+    # notation like in the paper
+    y = heatmaps
+    y_hat = predictions
+
+    is_extreme_point = tf.equal(y, 1.0)
+    # binary tensor with shape [b, h, w, c]
+
+    losses = tf.nn.sigmoid_cross_entropy_with_logits(
+        logits=y_hat, labels=tf.to_float(is_extreme_point)
+    )  # shape [b, h, w, c]
+
+    # to the [0, 1] range
+    y_hat = tf.sigmoid(y_hat)
+
+    weights = tf.where(
+        is_extreme_point, tf.pow(1.0 - y_hat, alpha),
+        tf.pow(1.0 - y, beta) * tf.pow(y_hat, alpha)
+    )  # shape [b, h, w, c]
+
+    b = tf.shape(y)[0]  # batch size
+    normalizer = tf.to_float(tf.reshape(num_boxes, [b, 1, 1])) + 1.0
+    return tf.reduce_sum(weights * losses, 3)/normalizer

@@ -4,7 +4,7 @@ import tensorflow.contrib.slim as slim
 from detector.constants import DATA_FORMAT
 
 
-BATCH_NORM_MOMENTUM = 0.99
+BATCH_NORM_MOMENTUM = 0.95
 BATCH_NORM_EPSILON = 1e-3
 
 

@@ -12,7 +12,7 @@ PARAMS = {
 
     'backbone': 'mobilenet',
     'depth_multiplier': 1.0,
-    'weight_decay': 1e-4,
+    'weight_decay': 0.0,
 
     'num_steps': 200000,
     'initial_learning_rate': 3e-4,

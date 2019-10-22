@@ -1,4 +1,4 @@
-# MultiPoseNet in tensorflow (*work in progress :wrench:*)
+# MultiPoseNet in `tensorflow` (*work in progress :wrench:*)
 
 This an implementation of [MultiPoseNet: Fast Multi-Person Pose Estimation using Pose Residual Network](https://arxiv.org/abs/1807.04067).
 
@@ -12,8 +12,8 @@ This an implementation of [MultiPoseNet: Fast Multi-Person Pose Estimation using
 6. Run `create_pb.py`.
 
 ## Requirements
-1. tensorflow 1.14
+1. tensorflow 1.15
 2. Pillow 6.1, opencv-python 4.1
-3. numpy 1.16, scipy 1.3
+3. numpy 1.17, scipy 1.3
 4. matplotlib 3.1, tqdm 4.36
 5. [pycocotools](https://github.com/cocodataset/cocoapi/)

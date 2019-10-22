@@ -65,6 +65,7 @@ class KeypointPipeline:
             heatmaps: a float tensor with shape [height / DOWNSAMPLE, width / DOWNSAMPLE, 17].
             loss_masks: a float tensor with shape [height / DOWNSAMPLE, width / DOWNSAMPLE].
             segmentation_masks: a float tensor with shape [height / DOWNSAMPLE, width / DOWNSAMPLE].
+            num_boxes: an int tensor with shape [].
         """
         image, masks, boxes, keypoints = self.parse(example_proto)
 
@@ -97,11 +98,15 @@ class KeypointPipeline:
         else:
             heatmaps.set_shape([None, None, 17])
 
+        # this is needed for normalization
+        num_boxes = tf.shape(boxes)[0]
+
         features = {'images': image}
         labels = {
             'heatmaps': heatmaps,
             'loss_masks': masks[:, :, 0],
-            'segmentation_masks': masks[:, :, 1]
+            'segmentation_masks': masks[:, :, 1],
+            'num_boxes': num_boxes
         }
         return features, labels
 
