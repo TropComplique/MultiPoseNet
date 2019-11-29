@@ -13,7 +13,7 @@ def model_fn(features, labels, mode, params):
     images = features['images']
     backbone_features = mobilenet_v1(
         images, is_training=False,
-        params['depth_multiplier']
+        depth_multiplier=params['depth_multiplier']
     )
     retinanet = RetinaNet(
         backbone_features,

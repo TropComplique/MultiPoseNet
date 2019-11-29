@@ -38,7 +38,7 @@ PARAMS = {
 # trained models
 KEYPOINTS_CHECKPOINT = 'models/run00/model.ckpt-200000'
 PERSON_DETECTOR_CHECKPOINT = 'models/run01/model.ckpt-150000'
-PRN_CHECKPOINT = 'models/run02/model.ckpt-170000'
+PRN_CHECKPOINT = 'models/run02/model.ckpt-200000'
 
 
 def create_full_graph(images, params):
@@ -71,7 +71,7 @@ def create_full_graph(images, params):
         retinanet = RetinaNet(backbone_features, tf.shape(images), is_training, params)
 
     predictions = {
-        'keypoint_heatmaps': subnet.heatmaps[:, :, :, :17],
+        'keypoint_heatmaps': tf.sigmoid(subnet.heatmaps[:, :, :, :17]),
         'segmentation_masks': subnet.heatmaps[:, :, :, 17]
     }
     predictions.update(retinanet.get_predictions(
@@ -88,7 +88,7 @@ def create_full_graph(images, params):
     num_boxes = predictions['num_boxes']  # shape [b]
 
     M = tf.reduce_max(heatmaps, [1, 2], keepdims=True)
-    mask = tf.to_float(M > 0.5)
+    mask = tf.to_float(M > 0.2)
     m = tf.reduce_min(heatmaps, [1, 2], keepdims=True)
     heatmaps = (heatmaps - m)/(M - m)
     heatmaps *= mask

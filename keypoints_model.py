@@ -52,7 +52,7 @@ def model_fn(features, labels, mode, params):
     losses['focal_loss'] = focal_loss_value/normalizer
 
     regression_loss = tf.nn.l2_loss(loss_masks * (predicted_segmentation_masks - segmentation_masks))
-    losses['regression_loss'] = 1e-2 * regression_loss/normalizer
+    losses['regression_loss'] = 1e-3 * regression_loss/normalizer
 
     # additional supervision
     # with person segmentation
@@ -64,7 +64,7 @@ def model_fn(features, labels, mode, params):
         # where stride is equal to level ** 2
 
         x = tf.nn.l2_loss(loss_masks * (x - segmentation_masks))
-        losses[f'segmentation_loss_at_level_{level}'] = 1e-4 * x/normalizer
+        losses[f'segmentation_loss_at_level_{level}'] = 1e-5 * x/normalizer
 
         shape = tf.shape(segmentation_masks)
         height, width = shape[1], shape[2]
@@ -85,6 +85,7 @@ def model_fn(features, labels, mode, params):
         area = tf.to_float(height * width)
 
         loss_masks = tf.expand_dims(labels['loss_masks'], 3)
+        predicted_heatmaps = tf.sigmoid(predicted_heatmaps)
         per_pixel_reg_loss = tf.nn.l2_loss(loss_masks * (predicted_heatmaps - heatmaps))/(normalizer * area)
         tf.summary.scalar('per_pixel_reg_loss', per_pixel_reg_loss)
 
